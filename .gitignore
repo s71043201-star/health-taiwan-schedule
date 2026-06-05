@@ -1,0 +1,4 @@
+# 內部資料，不公開
+data/
+courses.json
+__pycache__/
