@@ -107,7 +107,7 @@ def load_courses():
     skipped_cancel = 0
     unknown_loc = Counter()
     for r in rows[1:]:
-        if r is None or r[0] is None:
+        if not r or r[0] is None:
             continue
         name, ptype, date, slot, loc, enrolled, cap, full, status = r[:9]
         if str(status).strip() == "取消":      # 取消不放
