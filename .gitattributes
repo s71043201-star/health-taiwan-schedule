@@ -1,0 +1,7 @@
+# 統一以 LF 儲存，避免 Windows(CRLF) 與雲端(LF) 產生假變更
+*.html text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.xlsx binary
