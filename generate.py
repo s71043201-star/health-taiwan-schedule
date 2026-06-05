@@ -23,8 +23,19 @@ import openpyxl
 
 # ---------------------------------------------------------------- 路徑設定
 ROOT = Path(__file__).resolve().parent
-XLSX = ROOT / "data" / "course_slots_2026-06.xlsx"
+DATA = ROOT / "data"
 TPL = ROOT / "templates"
+
+
+def _latest_xlsx():
+    """自動挑 data/ 內最新（修改時間最晚）的 .xlsx；找不到就報錯。"""
+    files = [p for p in DATA.glob("*.xlsx") if not p.name.startswith("~$")]
+    if not files:
+        raise SystemExit(f"❌ 在 {DATA} 找不到任何 .xlsx，請先把課表 Excel 丟進去。")
+    return max(files, key=lambda p: p.stat().st_mtime)
+
+
+XLSX = _latest_xlsx()
 OUT_BIG = ROOT / "大字版"
 OUT_MOBILE = ROOT / "手機版"
 
@@ -41,6 +52,10 @@ WD_ZH = ["日", "一", "二", "三", "四", "五", "六"]
 WD_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 
 DISTRICTS = ["北投", "士林", "中山"]
+
+# 全區綜合輸出檔名
+ALL_BIG = "全區綜合_2026年6月課程表_日系大字版.html"
+ALL_MOB = "全區綜合_2026年6月課程表_手機版.html"
 
 
 def classify_district(loc: str):
@@ -141,7 +156,7 @@ def splice(template: str, head_marker: str, tail_marker: str, body: str):
 
 
 # ---------------------------------------------------------------- 大字版（週表格）
-def render_big(courses):
+def render_big(courses, show_district=False):
     by_week = defaultdict(list)
     for c in courses:
         by_week[sunday_of(dt.date.fromisoformat(c["date"]))].append(c)
@@ -167,7 +182,7 @@ def render_big(courses):
             tds = [f'<td class="time">{h:02d}:00</td>']
             for day in days:
                 cs = sorted(cell_map.get(day.isoformat(), {}).get(h, []), key=sort_key)
-                tds.append("<td>" + "".join(_course_span(c) for c in cs) + "</td>")
+                tds.append("<td>" + "".join(_course_span(c, show_district) for c in cs) + "</td>")
             rows_html.append("<tr>" + "".join(tds) + "</tr>")
         weeks_html.append(
             f'<div class="week"><div class="week-label">'
@@ -177,17 +192,18 @@ def render_big(courses):
     return "\n".join(weeks_html)
 
 
-def _course_span(c):
+def _course_span(c, show_district=False):
     k, tag, b, bg = TYPE_MAP[c["type"]]
+    vn = (f'［{c["district"]}］' if show_district else "") + esc(c["venue"])
     return (f'<span class="course" style="border-color:{b};background:{bg}">'
             f'<span class="tag" style="background:{b};color:#fff">{tag}</span>'
             f'<span class="tm">{tm_str(c)}</span>'
             f'<span class="nm">{esc(c["name"])}</span>'
-            f'<span class="vn">{esc(c["venue"])}</span></span>')
+            f'<span class="vn">{vn}</span></span>')
 
 
 # ---------------------------------------------------------------- 手機版（日卡片）
-def render_mobile(courses):
+def render_mobile(courses, show_district=False):
     by_day = defaultdict(list)
     for c in courses:
         by_day[c["date"]].append(c)
@@ -196,7 +212,7 @@ def render_mobile(courses):
         cs = sorted(by_day[day], key=sort_key)
         d = dt.date.fromisoformat(day)
         wd = WD_ZH[(d.weekday() + 1) % 7]
-        cards = "".join(_card(c) for c in cs)
+        cards = "".join(_card(c, show_district) for c in cs)
         days_html.append(
             f'<div class="day"><div class="day-h">'
             f'<span class="dn">{d.month}/{d.day}</span>'
@@ -205,13 +221,29 @@ def render_mobile(courses):
     return "\n".join(days_html)
 
 
-def _card(c):
+def _card(c, show_district=False):
     k, tag, b, bg = TYPE_MAP[c["type"]]
+    vn = (f'［{c["district"]}］' if show_district else "") + esc(c["venue"])
     return (f'<div class="card" data-k="{k}" style="border-color:{b};background:{bg}">'
             f'<div class="top"><span class="tag" style="background:{b}">{tag}</span>'
             f'<span class="tm">{tm_str(c)}</span></div>'
             f'<span class="nm">{esc(c["name"])}</span>'
-            f'<span class="vn">{esc(c["venue"])}</span></div>')
+            f'<span class="vn">{vn}</span></div>')
+
+
+# ---------------------------------------------------------------- 返回主選單按鈕
+BACK_BTN = (
+    '<a class="homefab" href="../index.html">← 主選單</a>'
+    '<style>.homefab{position:fixed;left:16px;bottom:18px;z-index:65;'
+    'background:#3a362d;color:#fff;text-decoration:none;font-weight:700;'
+    'font-size:14px;padding:10px 16px;border-radius:999px;'
+    'box-shadow:0 3px 10px rgba(0,0,0,.25);'
+    'font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;}</style>'
+)
+
+
+def inject_back(page: str):
+    return page.replace("</body>", BACK_BTN + "</body>", 1)
 
 
 # ---------------------------------------------------------------- 統計
@@ -230,6 +262,7 @@ def build_stats(courses):
 
 # ---------------------------------------------------------------- 主流程
 def main():
+    print(f"來源 Excel：{XLSX.name}")
     courses, header, skipped, unknown = load_courses()
     print(f"讀入 {len(courses)} 筆（已排除取消 {skipped} 筆）")
     if unknown:
@@ -253,14 +286,30 @@ def main():
         # 大字版
         tpl = (TPL / tpl_name[(dist, "big")]).read_text(encoding="utf-8")
         out = splice(tpl, '<div class="week">', '<div class="foot">', render_big(dc))
-        (OUT_BIG / tpl_name[(dist, "big")]).write_text(out, encoding="utf-8")
+        (OUT_BIG / tpl_name[(dist, "big")]).write_text(inject_back(out), encoding="utf-8")
         # 手機版
         tpl = (TPL / tpl_name[(dist, "mob")]).read_text(encoding="utf-8")
         out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
-        (OUT_MOBILE / tpl_name[(dist, "mob")]).write_text(out, encoding="utf-8")
+        (OUT_MOBILE / tpl_name[(dist, "mob")]).write_text(inject_back(out), encoding="utf-8")
         s = stats["by_district"][dist]
         print(f"  {dist}區：{s['total']} 堂 / {s['days']} 天  "
               + " ".join(f"{TYPE_MAP[t][1]}{n}" for t, n in s["by_type"].items()))
+
+    # 全區綜合（三區合併，課程標出所屬區）
+    base_big = (TPL / tpl_name[("北投", "big")]).read_text(encoding="utf-8")
+    base_big = (base_big.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
+                        .replace("<h1>北投區　六月課程表</h1>", "<h1>全區綜合　六月課程表</h1>"))
+    out = splice(base_big, '<div class="week">', '<div class="foot">',
+                 render_big(courses, show_district=True))
+    (OUT_BIG / ALL_BIG).write_text(inject_back(out), encoding="utf-8")
+
+    base_mob = (TPL / tpl_name[("北投", "mob")]).read_text(encoding="utf-8")
+    base_mob = (base_mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
+                        .replace("<h1>北投區　六月課程表</h1>", "<h1>全區綜合　六月課程表</h1>"))
+    out = splice(base_mob, '<div class="day">', '<div class="empty">',
+                 render_mobile(courses, show_district=True))
+    (OUT_MOBILE / ALL_MOB).write_text(inject_back(out), encoding="utf-8")
+    print(f"  全區綜合：{len(courses)} 堂")
 
     # 資料庫 JSON
     db = {
@@ -288,6 +337,25 @@ def write_index(stats):
         "中山": ("大字版/健康台灣深耕計畫_中山區_2026年6月課程表_日系大字版.html",
                 "手機版/健康台灣深耕計畫_中山區_2026年6月課程表_手機版.html"),
     }
+    total = stats["total"]
+    # 全區綜合（置頂）
+    all_types = Counter()
+    for dist in DISTRICTS:
+        for t, n in stats["by_district"][dist]["by_type"].items():
+            all_types[t] += n
+    all_days = sum(stats["by_district"][d]["days"] for d in DISTRICTS)  # 顯示用近似
+    chips = "".join(
+        f'<span class="t t-{TYPE_MAP[t][0]}">{TYPE_MAP[t][1]} {all_types[t]}</span>'
+        for t in TYPE_MAP)
+    cards.append(f"""    <section class="card card-all">
+      <h2>🗂 全區綜合 <small>北投・士林・中山　共 {total} 堂</small></h2>
+      <div class="types">{chips}</div>
+      <div class="links">
+        <a href="{esc('大字版/' + ALL_BIG)}">電腦／大字版</a>
+        <a href="{esc('手機版/' + ALL_MOB)}">手機版</a>
+      </div>
+    </section>""")
+
     for dist in DISTRICTS:
         s = stats["by_district"][dist]
         big, mob = files[dist]
@@ -302,7 +370,6 @@ def write_index(stats):
         <a href="{esc(mob)}">手機版</a>
       </div>
     </section>""")
-    total = stats["total"]
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>健康台灣深耕計畫 · 2026年6月課程表</title>
@@ -317,6 +384,7 @@ body{{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
 .head .sub{{color:#4f4838;}}
 .card{{background:#fff;border:1px solid #e6dfcf;border-radius:14px;padding:22px 24px;
  margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.05);}}
+.card-all{{border:2px solid #b7ad99;background:#fbf7ee;}}
 .card h2{{margin:0 0 12px;font-size:22px;color:#23211c;}}
 .card h2 small{{font-size:14px;color:#8a8170;font-weight:500;margin-left:8px;}}
 .types{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}}

@@ -1,4 +1,6 @@
-# 內部資料，不公開
-data/
+# 衍生資料（雲端會自動重建，不需版控）
 courses.json
 __pycache__/
+
+# Excel 暫存鎖定檔
+~$*.xlsx

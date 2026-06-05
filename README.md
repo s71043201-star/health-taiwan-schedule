@@ -25,15 +25,33 @@
 - **狀態為「取消」一律排除**，不顯示也不計入統計。
 - 一筆 Excel 列 = 一堂課，忠實呈現，不做人工合併。
 
-## 重新產生
+## 新增 / 更新課表
 
-更新 `data/course_slots_2026-06.xlsx` 後執行：
+程式會自動讀取 `data/` 內**修改時間最新**的 `.xlsx`（檔名隨意）。
+
+### 方法 A：在 GitHub 網站上傳（推薦，免裝任何東西、不限本機）
+
+任何有此 repo 權限的人都能更新：
+
+1. 打開 repo 的 `data/` 資料夾 →「Add file ▸ Upload files」。
+2. 拖入新的課表 Excel，按「Commit changes」。
+3. GitHub Actions（`.github/workflows/build.yml`）會自動跑 `generate.py`、
+   重建所有網頁並提交，GitHub Pages 約 1～2 分鐘後完成更新。
+
+> 要讓同事也能上傳：repo ▸ Settings ▸ Collaborators ▸ 邀請對方即可。
+
+### 方法 B：本機執行
 
 ```
 python generate.py
+git add -A && git commit -m "更新課表" && git push
 ```
 
-會重寫 `大字版/`、`手機版/` 內 6 個 HTML、`courses.json` 與 `index.html`。
+## 頁面
+
+- `index.html`：入口主選單（全區綜合 + 三區，各有大字版/手機版連結）。
+- 每個課表頁左下角有「← 主選單」可回到入口頁。
+- **全區綜合**：三區課程合併於一張表，每筆標出所屬區（［北投］等）。
 
 ## 統計（2026-06）
 
