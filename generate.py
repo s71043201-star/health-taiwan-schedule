@@ -314,6 +314,20 @@ def inject_back(page: str):
     return page.replace("</body>", BACK_BTN + "</body>", 1)
 
 
+# ---------------------------------------------------------------- 課表頁頂部備註
+SYSNOTE = (
+    '<div class="sysnote">📌 本頁僅供查詢課表；要<b>預約課程</b>請至 '
+    'LINE 圖文選單的「預約課程」。</div>'
+    '<style>.sysnote{margin:0 auto 16px;max-width:1120px;background:#FBEFE4;'
+    'border:1.5px solid #E0A86B;border-radius:10px;padding:10px 14px;color:#5c4326;'
+    'font-size:15px;font-weight:600;line-height:1.5;}.sysnote b{color:#9a5a1f;}</style>'
+)
+
+
+def inject_sysnote(page: str):
+    return page.replace('<div class="wrap">', '<div class="wrap">' + SYSNOTE, 1)
+
+
 # ---------------------------------------------------------------- 統計
 def build_stats(courses):
     stats = {"total": len(courses), "by_district": {}}
@@ -355,8 +369,24 @@ body{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
  margin-bottom:16px;text-decoration:none;color:#23211c;box-shadow:0 1px 3px rgba(0,0,0,.05);
  display:flex;align-items:center;justify-content:space-between;}
 .month b{font-size:22px;}.month span{color:#8a8170;font-weight:600;}
+.notice{background:#FBEFE4;border:1.5px solid #E0A86B;border-radius:12px;
+ padding:16px 18px;margin-bottom:26px;color:#5c4326;}
+.notice .nt{font-weight:800;font-size:16px;margin:0 0 4px;color:#9a5a1f;}
+.notice p{margin:0 0 6px;font-size:15px;line-height:1.6;}
+.notice b{color:#9a5a1f;}
+.notice img{display:block;width:100%;max-width:420px;margin:10px auto 0;
+ border-radius:10px;border:1px solid #e6dfcf;}
 .foot{text-align:center;margin-top:40px;font-size:13px;letter-spacing:.16em;color:#8a8170;}
 """
+
+
+def notice_html(img_prefix):
+    """『僅供查詢』提示區塊；img_prefix 為相對於該頁到網站根目錄的前綴。"""
+    return f"""<div class="notice">
+<p class="nt">⚠️ 本系統僅供「課表查詢」</p>
+<p>要<b>預約課程</b>，請回到 LINE 的圖文選單，點選左上角的「<b>預約課程</b>」（如下圖紅框處）。</p>
+<img src="{img_prefix}assets/booking-location.jpg" alt="預約課程位於圖文選單左上角">
+</div>"""
 
 
 # ---------------------------------------------------------------- 主流程
@@ -394,10 +424,10 @@ def main():
             dc = [c for c in mc if c["district"] == dist]
             tpl = restamp((TPL / TPL_NAME[(dist, "big")]).read_text(encoding="utf-8"), year, month)
             out = splice(tpl, '<div class="week">', '<div class="foot">', render_big(dc))
-            (big_dir / OUT_NAME[(dist, "big")]).write_text(inject_back(out), encoding="utf-8")
+            (big_dir / OUT_NAME[(dist, "big")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
             tpl = restamp((TPL / TPL_NAME[(dist, "mob")]).read_text(encoding="utf-8"), year, month)
             out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
-            (mob_dir / OUT_NAME[(dist, "mob")]).write_text(inject_back(out), encoding="utf-8")
+            (mob_dir / OUT_NAME[(dist, "mob")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
 
         # 全區綜合（三區合併，課程標出所屬區）
         big = restamp((TPL / TPL_NAME[("北投", "big")]).read_text(encoding="utf-8"), year, month)
@@ -405,14 +435,14 @@ def main():
                   .replace("<h1>北投區　", "<h1>全區綜合　"))
         out = splice(big, '<div class="week">', '<div class="foot">',
                      render_big(mc, show_district=True))
-        (big_dir / OUT_NAME[("全區", "big")]).write_text(inject_back(out), encoding="utf-8")
+        (big_dir / OUT_NAME[("全區", "big")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
 
         mob = restamp((TPL / TPL_NAME[("北投", "mob")]).read_text(encoding="utf-8"), year, month)
         mob = (mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
                   .replace("<h1>北投區　", "<h1>全區綜合　"))
         out = splice(mob, '<div class="day">', '<div class="empty">',
                      render_mobile(mc, show_district=True))
-        (mob_dir / OUT_NAME[("全區", "mob")]).write_text(inject_back(out), encoding="utf-8")
+        (mob_dir / OUT_NAME[("全區", "mob")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
 
         write_month_index(mdir, year, month, stats)
         month_infos.append((year, month, len(mc)))
@@ -475,6 +505,7 @@ def write_month_index(mdir, year, month, stats):
 <div class="head"><div class="ey">Healthy Taiwan Program</div>
 <h1>{year} 年 {month} 月課程表</h1>
 <div class="sub">士林 · 北投 · 中山　四大處方　共 {stats['total']} 堂</div></div>
+{notice_html("../")}
 {_region_cards(stats)}
 <div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
 </div></body></html>"""
@@ -495,6 +526,7 @@ def write_root_index(month_infos):
 <div class="head"><div class="ey">Healthy Taiwan Program</div>
 <h1>課程表</h1>
 <div class="sub">請選擇月份</div></div>
+{notice_html("")}
 {body}
 <div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
 </div></body></html>"""
