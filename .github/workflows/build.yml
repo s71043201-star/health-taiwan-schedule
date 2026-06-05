@@ -1,15 +1,23 @@
 name: 重建課表網站
 
-# 任何人在 GitHub 網站把新的 Excel 丟進 data/（或更新產生器/版型）後，
-# 雲端會自動跑 generate.py 重建網頁並提交，GitHub Pages 隨即重新部署。
+# 觸發方式：
+#  1. repository_dispatch（type: rebuild）：共用 Google Sheet 一存檔，
+#     由 Apps Script 立即呼叫，達成「編輯完即時更新」。
+#  2. push：有人把 Excel 丟進 data/（或改 generate.py / 版型）。
+#  3. workflow_dispatch：在 Actions 頁手動觸發。
+#  4. schedule：每天定時保險重建一次，避免即時觸發萬一漏掉。
 on:
+  repository_dispatch:
+    types: [rebuild]
   push:
     branches: [main]
     paths:
       - 'data/**'
       - 'generate.py'
       - 'templates/**'
-  workflow_dispatch:   # 也可在 Actions 頁手動觸發
+  workflow_dispatch:
+  schedule:
+    - cron: '0 21 * * *'   # 每天 UTC 21:00（台灣 05:00）
 
 permissions:
   contents: write
@@ -32,6 +40,10 @@ jobs:
         run: pip install openpyxl
 
       - name: 產生課表網頁
+        env:
+          # 設定 repo 變數 SHEET_XLSX_URL（試算表 xlsx 匯出網址）後，
+          # 會改從共用試算表抓資料；未設定則用 data/ 內的 Excel。
+          COURSE_XLSX_URL: ${{ vars.SHEET_XLSX_URL }}
         run: python generate.py
 
       - name: 提交重建結果

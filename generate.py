@@ -13,8 +13,10 @@
 
 重跑方式：  python generate.py
 """
+import os
 import json
 import html
+import urllib.request
 import datetime as dt
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -35,7 +37,25 @@ def _latest_xlsx():
     return max(files, key=lambda p: p.stat().st_mtime)
 
 
-XLSX = _latest_xlsx()
+def resolve_xlsx():
+    """資料來源優先序：
+       1. 環境變數 COURSE_XLSX_URL（例如 Google Sheets 的 xlsx 匯出網址）
+          → 下載到 data/_from_sheet.xlsx 使用（雲端自動更新走這條）。
+       2. 否則用 data/ 內最新的本機 .xlsx。
+    """
+    url = os.environ.get("COURSE_XLSX_URL", "").strip()
+    if url:
+        DATA.mkdir(exist_ok=True)
+        dest = DATA / "_from_sheet.xlsx"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req) as r, open(dest, "wb") as f:
+            f.write(r.read())
+        print(f"已自共用試算表下載資料 → {dest.name}")
+        return dest
+    return _latest_xlsx()
+
+
+XLSX = resolve_xlsx()
 OUT_BIG = ROOT / "大字版"
 OUT_MOBILE = ROOT / "手機版"
 
@@ -97,7 +117,9 @@ def load_courses():
         if district is None:
             unknown_loc[str(loc)] += 1
             continue
-        d = dt.date.fromisoformat(str(date)[:10])
+        d = _parse_date(date)
+        if d is None:
+            continue
         start, end = _parse_slot(slot)
         courses.append({
             "name": str(name).strip(),
@@ -113,6 +135,21 @@ def load_courses():
             "status": str(status).strip(),
         })
     return courses, header, skipped_cancel, unknown_loc
+
+
+def _parse_date(v):
+    """容錯解析日期：支援 datetime、'YYYY-MM-DD'、'YYYY/M/D'。"""
+    if isinstance(v, dt.datetime):
+        return v.date()
+    if isinstance(v, dt.date):
+        return v
+    s = str(v).strip()[:10]
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    return None
 
 
 def _parse_slot(slot):

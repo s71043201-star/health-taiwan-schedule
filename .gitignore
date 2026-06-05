@@ -4,3 +4,6 @@ __pycache__/
 
 # Excel 暫存鎖定檔
 ~$*.xlsx
+
+# 從共用試算表下載的暫存檔（雲端執行時產生）
+data/_from_sheet.xlsx
