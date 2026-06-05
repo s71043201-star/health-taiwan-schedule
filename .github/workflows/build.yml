@@ -17,7 +17,7 @@ on:
       - 'templates/**'
   workflow_dispatch:
   schedule:
-    - cron: '0 21 * * *'   # 每天 UTC 21:00（台灣 05:00）
+    - cron: '*/5 * * * *'   # 每 5 分鐘輪詢試算表（GitHub 排程可能延遲數分鐘）
 
 permissions:
   contents: write
@@ -50,7 +50,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add 大字版 手機版 index.html
+          git add -A
           if git diff --staged --quiet; then
             echo "沒有變更，略過提交。"
           else

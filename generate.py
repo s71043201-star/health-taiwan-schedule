@@ -16,6 +16,7 @@
 import os
 import json
 import html
+import shutil
 import urllib.request
 import datetime as dt
 from pathlib import Path
@@ -56,8 +57,6 @@ def resolve_xlsx():
 
 
 XLSX = resolve_xlsx()
-OUT_BIG = ROOT / "大字版"
-OUT_MOBILE = ROOT / "手機版"
 
 # ---------------------------------------------------------------- 分類設定
 # 處方類型 → (data-key, 標籤, 邊框色, 背景色)
@@ -73,9 +72,41 @@ WD_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 
 DISTRICTS = ["北投", "士林", "中山"]
 
-# 全區綜合輸出檔名
-ALL_BIG = "全區綜合_2026年6月課程表_日系大字版.html"
-ALL_MOB = "全區綜合_2026年6月課程表_手機版.html"
+# 月份中文（索引 = 月份數字）
+CN_MONTH = ["", "一", "二", "三", "四", "五", "六",
+            "七", "八", "九", "十", "十一", "十二"]
+
+# 各月資料夾內的輸出檔名（月份資訊由資料夾承載）
+OUT_NAME = {
+    ("北投", "big"): "北投區_大字版.html",
+    ("北投", "mob"): "北投區_手機版.html",
+    ("士林", "big"): "士林區_大字版.html",
+    ("士林", "mob"): "士林區_手機版.html",
+    ("中山", "big"): "中山區_大字版.html",
+    ("中山", "mob"): "中山區_手機版.html",
+    ("全區", "big"): "全區綜合_大字版.html",
+    ("全區", "mob"): "全區綜合_手機版.html",
+}
+
+# 來源版型（皆以「北投區 / 2026年6月」為基準，產生時再依實際年月重新標記）
+TPL_NAME = {
+    ("北投", "big"): "健康台灣深耕計畫_北投區_2026年6月課程表_日系大字版.html",
+    ("北投", "mob"): "健康台灣深耕計畫_北投區_2026年6月課程表_手機版.html",
+    ("士林", "big"): "健康台灣深耕計畫_士林區_2026年6月課程表_日系大字版.html",
+    ("士林", "mob"): "健康台灣深耕計畫_士林區_2026年6月課程表_手機版.html",
+    ("中山", "big"): "健康台灣深耕計畫_中山區_2026年6月課程表_日系大字版.html",
+    ("中山", "mob"): "健康台灣深耕計畫_中山區_2026年6月課程表_手機版.html",
+}
+
+
+def restamp(tpl: str, year: int, month: int):
+    """把版型基準的「2026 / 六月 / 6 月 / .06 / M=6」改成實際年月。"""
+    return (tpl
+            .replace("2026", str(year))
+            .replace("六月", CN_MONTH[month] + "月")
+            .replace(" . 06", f" . {month:02d}")
+            .replace("年 6 月", f"年 {month} 月")
+            .replace(",M=6;", f",M={month};"))
 
 
 def classify_district(loc: str):
@@ -297,6 +328,37 @@ def build_stats(courses):
     return stats
 
 
+# ---------------------------------------------------------------- 入口頁共用樣式
+INDEX_CSS = """
+*{box-sizing:border-box;}
+body{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
+ font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;line-height:1.6;}
+.wrap{max-width:760px;margin:0 auto;}
+.back{display:inline-block;margin-bottom:18px;color:#3a362d;text-decoration:none;font-weight:700;font-size:14px;}
+.head{text-align:center;margin-bottom:40px;}
+.head .ey{font-size:12px;letter-spacing:.3em;color:#7a715f;text-transform:uppercase;}
+.head h1{font-size:28px;font-weight:700;margin:10px 0 6px;color:#23211c;}
+.head .sub{color:#4f4838;}
+.card{background:#fff;border:1px solid #e6dfcf;border-radius:14px;padding:22px 24px;
+ margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.card-all{border:2px solid #b7ad99;background:#fbf7ee;}
+.card h2{margin:0 0 12px;font-size:22px;color:#23211c;}
+.card h2 small{font-size:14px;color:#8a8170;font-weight:500;margin-left:8px;}
+.types{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+.types .t{font-size:14px;font-weight:700;padding:4px 12px;border-radius:999px;color:#fff;}
+.t-n{background:#445230;}.t-s{background:#72491F;}.t-o{background:#385268;}.t-e{background:#6E4858;}
+.links{display:flex;gap:12px;}
+.links a{flex:1;text-align:center;padding:12px;border-radius:10px;text-decoration:none;
+ font-weight:700;background:#3a362d;color:#fff;}
+.links a:last-child{background:#fff;color:#3a362d;border:1.5px solid #d9cfba;}
+.month{background:#fff;border:1.5px solid #d9cfba;border-radius:14px;padding:22px 24px;
+ margin-bottom:16px;text-decoration:none;color:#23211c;box-shadow:0 1px 3px rgba(0,0,0,.05);
+ display:flex;align-items:center;justify-content:space-between;}
+.month b{font-size:22px;}.month span{color:#8a8170;font-weight:600;}
+.foot{text-align:center;margin-top:40px;font-size:13px;letter-spacing:.16em;color:#8a8170;}
+"""
+
+
 # ---------------------------------------------------------------- 主流程
 def main():
     print(f"來源 Excel：{XLSX.name}")
@@ -307,136 +369,133 @@ def main():
         for k, v in unknown.most_common():
             print(f"   {k}  ×{v}")
 
-    stats = build_stats(courses)
+    # 依年月分組
+    by_month = defaultdict(list)
+    for c in courses:
+        d = dt.date.fromisoformat(c["date"])
+        by_month[(d.year, d.month)].append(c)
+    month_keys = sorted(by_month)
 
-    tpl_name = {
-        ("北投", "big"):   "健康台灣深耕計畫_北投區_2026年6月課程表_日系大字版.html",
-        ("北投", "mob"):   "健康台灣深耕計畫_北投區_2026年6月課程表_手機版.html",
-        ("士林", "big"):   "健康台灣深耕計畫_士林區_2026年6月課程表_日系大字版.html",
-        ("士林", "mob"):   "健康台灣深耕計畫_士林區_2026年6月課程表_手機版.html",
-        ("中山", "big"):   "健康台灣深耕計畫_中山區_2026年6月課程表_日系大字版.html",
-        ("中山", "mob"):   "健康台灣深耕計畫_中山區_2026年6月課程表_手機版.html",
-    }
+    # 清掉舊的月份輸出資料夾，避免殘留已不存在的月份
+    for old in ROOT.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]"):
+        if old.is_dir():
+            shutil.rmtree(old)
 
-    for dist in DISTRICTS:
-        dc = [c for c in courses if c["district"] == dist]
-        # 大字版
-        tpl = (TPL / tpl_name[(dist, "big")]).read_text(encoding="utf-8")
-        out = splice(tpl, '<div class="week">', '<div class="foot">', render_big(dc))
-        (OUT_BIG / tpl_name[(dist, "big")]).write_text(inject_back(out), encoding="utf-8")
-        # 手機版
-        tpl = (TPL / tpl_name[(dist, "mob")]).read_text(encoding="utf-8")
-        out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
-        (OUT_MOBILE / tpl_name[(dist, "mob")]).write_text(inject_back(out), encoding="utf-8")
-        s = stats["by_district"][dist]
-        print(f"  {dist}區：{s['total']} 堂 / {s['days']} 天  "
-              + " ".join(f"{TYPE_MAP[t][1]}{n}" for t, n in s["by_type"].items()))
+    month_infos = []
+    for (year, month) in month_keys:
+        mc = by_month[(year, month)]
+        mdir = ROOT / f"{year}-{month:02d}"
+        big_dir, mob_dir = mdir / "大字版", mdir / "手機版"
+        big_dir.mkdir(parents=True, exist_ok=True)
+        mob_dir.mkdir(parents=True, exist_ok=True)
+        stats = build_stats(mc)
 
-    # 全區綜合（三區合併，課程標出所屬區）
-    base_big = (TPL / tpl_name[("北投", "big")]).read_text(encoding="utf-8")
-    base_big = (base_big.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
-                        .replace("<h1>北投區　六月課程表</h1>", "<h1>全區綜合　六月課程表</h1>"))
-    out = splice(base_big, '<div class="week">', '<div class="foot">',
-                 render_big(courses, show_district=True))
-    (OUT_BIG / ALL_BIG).write_text(inject_back(out), encoding="utf-8")
+        for dist in DISTRICTS:
+            dc = [c for c in mc if c["district"] == dist]
+            tpl = restamp((TPL / TPL_NAME[(dist, "big")]).read_text(encoding="utf-8"), year, month)
+            out = splice(tpl, '<div class="week">', '<div class="foot">', render_big(dc))
+            (big_dir / OUT_NAME[(dist, "big")]).write_text(inject_back(out), encoding="utf-8")
+            tpl = restamp((TPL / TPL_NAME[(dist, "mob")]).read_text(encoding="utf-8"), year, month)
+            out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
+            (mob_dir / OUT_NAME[(dist, "mob")]).write_text(inject_back(out), encoding="utf-8")
 
-    base_mob = (TPL / tpl_name[("北投", "mob")]).read_text(encoding="utf-8")
-    base_mob = (base_mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
-                        .replace("<h1>北投區　六月課程表</h1>", "<h1>全區綜合　六月課程表</h1>"))
-    out = splice(base_mob, '<div class="day">', '<div class="empty">',
-                 render_mobile(courses, show_district=True))
-    (OUT_MOBILE / ALL_MOB).write_text(inject_back(out), encoding="utf-8")
-    print(f"  全區綜合：{len(courses)} 堂")
+        # 全區綜合（三區合併，課程標出所屬區）
+        big = restamp((TPL / TPL_NAME[("北投", "big")]).read_text(encoding="utf-8"), year, month)
+        big = (big.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
+                  .replace("<h1>北投區　", "<h1>全區綜合　"))
+        out = splice(big, '<div class="week">', '<div class="foot">',
+                     render_big(mc, show_district=True))
+        (big_dir / OUT_NAME[("全區", "big")]).write_text(inject_back(out), encoding="utf-8")
 
-    # 資料庫 JSON
+        mob = restamp((TPL / TPL_NAME[("北投", "mob")]).read_text(encoding="utf-8"), year, month)
+        mob = (mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
+                  .replace("<h1>北投區　", "<h1>全區綜合　"))
+        out = splice(mob, '<div class="day">', '<div class="empty">',
+                     render_mobile(mc, show_district=True))
+        (mob_dir / OUT_NAME[("全區", "mob")]).write_text(inject_back(out), encoding="utf-8")
+
+        write_month_index(mdir, year, month, stats)
+        month_infos.append((year, month, len(mc)))
+        by_type = " ".join(f"{TYPE_MAP[t][1]}{sum(1 for c in mc if c['type'] == t)}" for t in TYPE_MAP)
+        print(f"  {year}-{month:02d}：{len(mc)} 堂  {by_type}")
+
+    # 資料庫 JSON（所有月份）
     db = {
-        "generated": "2026-06-05",
-        "month": "2026-06",
+        "months": [f"{y}-{m:02d}" for (y, m) in month_keys],
         "source": XLSX.name,
-        "stats": stats,
+        "total": len(courses),
         "courses": sorted(courses, key=lambda c: (c["district"],) + sort_key(c)),
     }
     (ROOT / "courses.json").write_text(
         json.dumps(db, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"已輸出 courses.json（{len(courses)} 筆）")
 
-    write_index(stats)
-    print("已輸出 index.html")
+    write_root_index(month_infos)
+    print(f"已輸出 index.html（{len(month_infos)} 個月份）")
 
 
-def write_index(stats):
+def _region_cards(stats):
+    """月份內各區卡片（連結相對於該月資料夾）。"""
     cards = []
-    files = {
-        "北投": ("大字版/健康台灣深耕計畫_北投區_2026年6月課程表_日系大字版.html",
-                "手機版/健康台灣深耕計畫_北投區_2026年6月課程表_手機版.html"),
-        "士林": ("大字版/健康台灣深耕計畫_士林區_2026年6月課程表_日系大字版.html",
-                "手機版/健康台灣深耕計畫_士林區_2026年6月課程表_手機版.html"),
-        "中山": ("大字版/健康台灣深耕計畫_中山區_2026年6月課程表_日系大字版.html",
-                "手機版/健康台灣深耕計畫_中山區_2026年6月課程表_手機版.html"),
-    }
-    total = stats["total"]
-    # 全區綜合（置頂）
     all_types = Counter()
     for dist in DISTRICTS:
         for t, n in stats["by_district"][dist]["by_type"].items():
             all_types[t] += n
-    all_days = sum(stats["by_district"][d]["days"] for d in DISTRICTS)  # 顯示用近似
-    chips = "".join(
-        f'<span class="t t-{TYPE_MAP[t][0]}">{TYPE_MAP[t][1]} {all_types[t]}</span>'
-        for t in TYPE_MAP)
+    chips = "".join(f'<span class="t t-{TYPE_MAP[t][0]}">{TYPE_MAP[t][1]} {all_types[t]}</span>'
+                    for t in TYPE_MAP)
     cards.append(f"""    <section class="card card-all">
-      <h2>全區綜合 <small>北投・士林・中山　共 {total} 堂</small></h2>
+      <h2>全區綜合 <small>北投・士林・中山　共 {stats['total']} 堂</small></h2>
       <div class="types">{chips}</div>
       <div class="links">
-        <a href="{esc('大字版/' + ALL_BIG)}">電腦／大字版</a>
-        <a href="{esc('手機版/' + ALL_MOB)}">手機版</a>
+        <a href="{esc('大字版/' + OUT_NAME[('全區', 'big')])}">電腦／大字版</a>
+        <a href="{esc('手機版/' + OUT_NAME[('全區', 'mob')])}">手機版</a>
       </div>
     </section>""")
-
     for dist in DISTRICTS:
         s = stats["by_district"][dist]
-        big, mob = files[dist]
-        chips = "".join(
-            f'<span class="t t-{TYPE_MAP[t][0]}">{TYPE_MAP[t][1]} {n}</span>'
-            for t, n in s["by_type"].items())
+        chips = "".join(f'<span class="t t-{TYPE_MAP[t][0]}">{TYPE_MAP[t][1]} {n}</span>'
+                        for t, n in s["by_type"].items())
         cards.append(f"""    <section class="card">
       <h2>{dist}區 <small>{s['total']} 堂 · {s['days']} 天</small></h2>
       <div class="types">{chips}</div>
       <div class="links">
-        <a href="{esc(big)}">電腦／大字版</a>
-        <a href="{esc(mob)}">手機版</a>
+        <a href="{esc('大字版/' + OUT_NAME[(dist, 'big')])}">電腦／大字版</a>
+        <a href="{esc('手機版/' + OUT_NAME[(dist, 'mob')])}">手機版</a>
       </div>
     </section>""")
+    return "\n".join(cards)
+
+
+def write_month_index(mdir, year, month, stats):
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>健康台灣深耕計畫 · 2026年6月課程表</title>
-<style>
-*{{box-sizing:border-box;}}
-body{{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
- font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;line-height:1.6;}}
-.wrap{{max-width:760px;margin:0 auto;}}
-.head{{text-align:center;margin-bottom:40px;}}
-.head .ey{{font-size:12px;letter-spacing:.3em;color:#7a715f;text-transform:uppercase;}}
-.head h1{{font-size:28px;font-weight:700;margin:10px 0 6px;color:#23211c;}}
-.head .sub{{color:#4f4838;}}
-.card{{background:#fff;border:1px solid #e6dfcf;border-radius:14px;padding:22px 24px;
- margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.05);}}
-.card-all{{border:2px solid #b7ad99;background:#fbf7ee;}}
-.card h2{{margin:0 0 12px;font-size:22px;color:#23211c;}}
-.card h2 small{{font-size:14px;color:#8a8170;font-weight:500;margin-left:8px;}}
-.types{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}}
-.types .t{{font-size:14px;font-weight:700;padding:4px 12px;border-radius:999px;color:#fff;}}
-.t-n{{background:#445230;}}.t-s{{background:#72491F;}}.t-o{{background:#385268;}}.t-e{{background:#6E4858;}}
-.links{{display:flex;gap:12px;}}
-.links a{{flex:1;text-align:center;padding:12px;border-radius:10px;text-decoration:none;
- font-weight:700;background:#3a362d;color:#fff;}}
-.links a:last-child{{background:#fff;color:#3a362d;border:1.5px solid #d9cfba;}}
-.foot{{text-align:center;margin-top:40px;font-size:13px;letter-spacing:.16em;color:#8a8170;}}
-</style></head><body><div class="wrap">
+<title>健康台灣深耕計畫 · {year}年{month}月課程表</title>
+<style>{INDEX_CSS}</style></head><body><div class="wrap">
+<a class="back" href="../index.html">← 選擇月份</a>
 <div class="head"><div class="ey">Healthy Taiwan Program</div>
-<h1>2026 年 6 月課程表</h1>
-<div class="sub">士林 · 北投 · 中山　四大處方　共 {total} 堂</div></div>
-{chr(10).join(cards)}
+<h1>{year} 年 {month} 月課程表</h1>
+<div class="sub">士林 · 北投 · 中山　四大處方　共 {stats['total']} 堂</div></div>
+{_region_cards(stats)}
+<div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
+</div></body></html>"""
+    (mdir / "index.html").write_text(page, encoding="utf-8")
+
+
+def write_root_index(month_infos):
+    buttons = []
+    for (year, month, total) in month_infos:
+        href = esc(f"{year}-{month:02d}/index.html")
+        buttons.append(f'<a class="month" href="{href}">'
+                       f'<b>{year} 年 {month} 月</b><span>{total} 堂 ›</span></a>')
+    body = "\n".join(buttons) if buttons else '<p style="text-align:center;color:#8a8170">目前沒有課程資料</p>'
+    page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>健康台灣深耕計畫 · 課程表</title>
+<style>{INDEX_CSS}</style></head><body><div class="wrap">
+<div class="head"><div class="ey">Healthy Taiwan Program</div>
+<h1>課程表</h1>
+<div class="sub">請選擇月份</div></div>
+{body}
 <div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
 </div></body></html>"""
     (ROOT / "index.html").write_text(page, encoding="utf-8")
