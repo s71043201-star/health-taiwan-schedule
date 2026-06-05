@@ -348,7 +348,7 @@ def write_index(stats):
         f'<span class="t t-{TYPE_MAP[t][0]}">{TYPE_MAP[t][1]} {all_types[t]}</span>'
         for t in TYPE_MAP)
     cards.append(f"""    <section class="card card-all">
-      <h2>🗂 全區綜合 <small>北投・士林・中山　共 {total} 堂</small></h2>
+      <h2>全區綜合 <small>北投・士林・中山　共 {total} 堂</small></h2>
       <div class="types">{chips}</div>
       <div class="links">
         <a href="{esc('大字版/' + ALL_BIG)}">電腦／大字版</a>
