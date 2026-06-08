@@ -458,12 +458,14 @@ def render_mobile(courses, show_district=False, hide_past=False):
             past.append(day_block(day))
         else:
             upcoming.append(day_block(day))
-    out = "\n".join(upcoming)
-    if past:                          # 當月已過去的日子收進底部隱藏式選單
-        out += (f'\n<details class="pastdays"><summary>'
-                f'<span>已過去的日期（{len(past)} 天）</span>'
-                f'<span class="arr">›</span></summary>\n{chr(10).join(past)}</details>')
-    return out
+    blocks = []
+    if past:                          # 當月已過去的日子收進最上面的隱藏式選單
+        blocks.append(f'<details class="pastdays"><summary>'
+                      f'<span>已過去的日期（{len(past)} 天）</span>'
+                      f'<span class="arr">›</span></summary>\n{chr(10).join(past)}</details>')
+    if upcoming:
+        blocks.append("\n".join(upcoming))
+    return "\n".join(blocks)
 
 
 def _card(c, show_district=False):
