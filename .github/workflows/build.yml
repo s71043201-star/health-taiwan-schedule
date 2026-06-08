@@ -1,11 +1,12 @@
 name: 重建課表網站
 
 # 觸發方式：
-#  1. repository_dispatch（type: rebuild）：共用 Google Sheet 一存檔，
-#     由 Apps Script 立即呼叫，達成「編輯完即時更新」。
-#  2. push：有人把 Excel 丟進 data/（或改 generate.py / 版型）。
+#  1. repository_dispatch（type: rebuild）：n8n 同步完 Supabase（每天 09:30/15:00，或按「立即同步」）
+#     後立即呼叫，達成「同步完即時更新」。需使用者電腦開著 n8n 才會跑。
+#  2. push：改 generate.py / 版型 / data/ 時。
 #  3. workflow_dispatch：在 Actions 頁手動觸發。
-#  4. schedule：每天定時保險重建一次，避免即時觸發萬一漏掉。
+#  4. schedule：每天固定重建一次（不需開電腦）。讓「已過去日期」分界每天前進，
+#     並刷新 Supabase 最新資料。GitHub 對「每天一次」這種低頻排程才可靠（*/5 會被節流）。
 on:
   repository_dispatch:
     types: [rebuild]
@@ -17,7 +18,7 @@ on:
       - 'templates/**'
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'   # 每 5 分鐘輪詢試算表（GitHub 排程可能延遲數分鐘）
+    - cron: '17 0 * * *'   # 每天 08:17（台灣，= 00:17 UTC）可靠重建一次；避開整點壅塞
 
 permissions:
   contents: write

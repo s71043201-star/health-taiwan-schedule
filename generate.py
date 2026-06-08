@@ -436,22 +436,34 @@ def _course_span(c, show_district=False):
 
 
 # ---------------------------------------------------------------- 手機版（日卡片）
-def render_mobile(courses, show_district=False):
+def render_mobile(courses, show_district=False, hide_past=False):
     by_day = defaultdict(list)
     for c in courses:
         by_day[c["date"]].append(c)
-    days_html = []
-    for day in sorted(by_day):
+    today = dt.date.today()
+
+    def day_block(day):
         cs = sorted(by_day[day], key=sort_key)
         d = dt.date.fromisoformat(day)
         wd = WD_ZH[(d.weekday() + 1) % 7]
         cards = "".join(_card(c, show_district) for c in cs)
-        days_html.append(
-            f'<div class="day"><div class="day-h">'
-            f'<span class="dn">{d.month}/{d.day}</span>'
-            f'<span class="wd">（{wd}）</span>'
-            f'<span class="cnt">{len(cs)} 堂</span></div>{cards}</div>')
-    return "\n".join(days_html)
+        return (f'<div class="day"><div class="day-h">'
+                f'<span class="dn">{d.month}/{d.day}</span>'
+                f'<span class="wd">（{wd}）</span>'
+                f'<span class="cnt">{len(cs)} 堂</span></div>{cards}</div>')
+
+    upcoming, past = [], []
+    for day in sorted(by_day):
+        if hide_past and dt.date.fromisoformat(day) < today:
+            past.append(day_block(day))
+        else:
+            upcoming.append(day_block(day))
+    out = "\n".join(upcoming)
+    if past:                          # 當月已過去的日子收進底部隱藏式選單
+        out += (f'\n<details class="pastdays"><summary>'
+                f'<span>已過去的日期（{len(past)} 天）</span>'
+                f'<span class="arr">›</span></summary>\n{chr(10).join(past)}</details>')
+    return out
 
 
 def _card(c, show_district=False):
@@ -495,6 +507,11 @@ def inject_sysnote(page: str):
 
 # ---------------------------------------------------------------- 課程查詢（下拉選單 + 時段 modal）
 COURSE_FILTER_CSS = """<style>
+.cfstep{max-width:1120px;margin:0 auto 8px;font-weight:700;color:#4f4838;font-size:15px;
+ display:flex;align-items:center;gap:8px;}
+.cfstep .no,.cfbar .no{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
+ border-radius:50%;background:#3a362d;color:#fff;font-size:14px;flex:none;}
+.cfstep.s1{margin-top:6px;}
 .cfbar{max-width:1120px;margin:0 auto 22px;display:flex;align-items:center;gap:12px;
  background:#fff;border:1.5px solid #e0d9c8;border-radius:12px;padding:12px 16px;
  box-shadow:0 1px 3px rgba(0,0,0,.05);}
@@ -518,6 +535,13 @@ COURSE_FILTER_CSS = """<style>
 .cfslot .dt{font-weight:700;color:#23211c;white-space:nowrap;}
 .cfslot .tm{color:#3f3a30;font-weight:600;white-space:nowrap;}
 .cfslot .vn{color:#5b5446;font-size:13px;margin-left:auto;text-align:right;line-height:1.4;}
+.pastdays{margin:18px 0 8px;border:1.5px dashed #d9cfba;border-radius:12px;background:#fdfcf9;}
+.pastdays>summary{list-style:none;cursor:pointer;padding:14px 16px;font-weight:700;color:#8a8170;
+ display:flex;align-items:center;justify-content:space-between;}
+.pastdays>summary::-webkit-details-marker{display:none;}
+.pastdays>summary .arr{color:#b7ad99;transition:transform .2s;font-size:18px;}
+.pastdays[open]>summary .arr{transform:rotate(90deg);}
+.pastdays .day{margin:0 12px 12px;}
 @media(max-width:760px){.cfbar{flex-direction:column;align-items:stretch;gap:8px;}
  .cfslot{flex-wrap:wrap;}
  .cfslot .vn{flex-basis:100%;margin-left:0;text-align:left;margin-top:3px;}}
@@ -536,11 +560,9 @@ def inject_course_filter(page: str, courses, show_district=False):
     names = sorted(by_name, key=lambda n: (order.index(by_name[n][0]["type"])
                    if by_name[n][0]["type"] in order else 99, n))
 
-    opts = ['<option value="">— 選擇課程，查看所有時段 —</option>']
     data = []
-    for i, n in enumerate(names):
+    for n in names:
         lst = by_name[n]
-        opts.append(f'<option value="{i}">{esc(n)}（{len(lst)} 場）</option>')
         _, tag, b, _bg = TYPE_MAP[lst[0]["type"]]
         slots = []
         for c in lst:
@@ -549,12 +571,16 @@ def inject_course_filter(page: str, courses, show_district=False):
             venue = (f'［{c["district"]}］' if show_district else "") + c["venue"]
             slots.append({"date": f"{d.month}/{d.day}", "wd": WD_ZH[(d.weekday() + 1) % 7],
                           "tm": tm_str(c), "venue": esc(venue), "b": sb})
-        data.append({"name": n, "tag": tag, "b": b, "slots": slots})
+        data.append({"name": n, "dn": esc(n), "tag": tag, "b": b, "slots": slots})
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
+    # 下拉選項由 JS 依目前選的處方類型動態產生（見 populate），這裡只放空殼
     bar = (COURSE_FILTER_CSS
-           + '<div class="cfbar"><span class="cfl">🔎 課程查詢</span>'
-           + f'<select id="cfSel" class="cfsel">{"".join(opts)}</select></div>')
+           + '<div class="cfbar"><span class="cfl"><span class="no">②</span>課程查詢</span>'
+           + '<select id="cfSel" class="cfsel"></select></div>')
+    # 步驟①標籤：注入到處方類型篩選（大字版 legend / 手機版 bar）上方
+    step1 = ('<div class="cfstep s1"><span class="no">①</span>'
+             '先選處方類型（想看全部就點「全部」）</div>')
     modal = (
         '<div class="cfmask" id="cfMask"><div class="cfmodal">'
         '<div class="cfm-h" id="cfmHead"><span id="cfmTitle"></span>'
@@ -562,9 +588,14 @@ def inject_course_filter(page: str, courses, show_district=False):
         '<div class="cfm-sub" id="cfmSub"></div><div class="cfm-body" id="cfmBody"></div>'
         '</div></div>'
         '<script>(function(){var D=' + payload + ';'
+        'var PH=\'<option value="">— 選擇課程，查看所有時段 —</option>\';'
         'var sel=document.getElementById("cfSel"),mask=document.getElementById("cfMask"),'
         'head=document.getElementById("cfmHead"),ttl=document.getElementById("cfmTitle"),'
         'sub=document.getElementById("cfmSub"),body=document.getElementById("cfmBody");'
+        # 依處方類型 tag 過濾下拉內容（tag 為空=全部）；value 仍是 D 的原始索引
+        'function populate(tag){var h=PH,i;for(i=0;i<D.length;i++){if(!tag||D[i].tag===tag){'
+        'h+=\'<option value="\'+i+\'">\'+D[i].dn+"（"+D[i].slots.length+" 場）</option>";}}'
+        'sel.innerHTML=h;sel.value="";}'
         'function open(i){var c=D[i];if(!c)return;ttl.textContent=c.name;'
         'head.style.borderLeftColor=c.b;sub.textContent=c.tag+"　共 "+c.slots.length+" 場時段";'
         'body.innerHTML=c.slots.map(function(s){return \'<div class="cfslot" style="border-color:\''
@@ -576,8 +607,31 @@ def inject_course_filter(page: str, courses, show_district=False):
         'document.getElementById("cfmX").onclick=close;'
         'mask.onclick=function(e){if(e.target===mask)close();};'
         'document.addEventListener("keydown",function(e){if(e.key==="Escape")close();});'
+        # 連動處方類型篩選：大字版 .legend .it（文字）/ 手機版 .bar .chip（data-k 代碼）
+        'var K2T={n:"營養",s:"運動",o:"社會",e:"情緒",all:null};'
+        'function tagOf(el){if(el.getAttribute&&el.getAttribute("data-k")!=null){'
+        'var k=el.getAttribute("data-k");return K2T.hasOwnProperty(k)?K2T[k]:null;}'
+        'if(el.classList.contains("allk")||el.textContent.trim()==="全部")return null;'
+        'return el.textContent.trim().slice(0,2);}'
+        'var chips=document.querySelectorAll(".legend .it, .bar .chip");'
+        '[].slice.call(chips).forEach(function(el){'
+        'el.addEventListener("click",function(){populate(tagOf(el));});});'
+        'populate(null);'
         '})();</script>')
-    page = page.replace('<div class="wrap">', '<div class="wrap">' + bar, 1)
+    # ① 標籤放在處方類型篩選上方（大字版 legend / 手機版 bar）
+    filt = ('<div class="legend">' if '<div class="legend">' in page
+            else ('<div class="bar">' if '<div class="bar">' in page else None))
+    if filt:
+        page = page.replace(filt, step1 + filt, 1)
+    # ② 課程查詢放在篩選下面：注入到課表內容最前面（取最早出現的錨點，
+    #    含「已過去日期」收合區，避免被注入到收合選單內部）
+    cands = [m for m in ('<details class="pastdays">', '<div class="week">', '<div class="day">')
+             if m in page]
+    if cands:
+        marker = min(cands, key=page.index)
+        page = page.replace(marker, bar + marker, 1)
+    else:
+        page = page.replace('<div class="wrap">', '<div class="wrap">' + bar, 1)
     page = page.replace('</body>', modal + '</body>', 1)
     return page
 
@@ -698,6 +752,8 @@ def main():
         big_dir.mkdir(parents=True, exist_ok=True)
         mob_dir.mkdir(parents=True, exist_ok=True)
         stats = build_stats(mc)
+        today = dt.date.today()
+        is_current = (year, month) == (today.year, today.month)   # 只有當月才收合已過去的日期
 
         for dist in DISTRICTS:
             dc = [c for c in mc if c["district"] == dist]
@@ -706,7 +762,7 @@ def main():
             (big_dir / OUT_NAME[(dist, "big")]).write_text(
                 inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
             tpl = restamp((TPL / TPL_NAME[(dist, "mob")]).read_text(encoding="utf-8"), year, month)
-            out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
+            out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc, hide_past=is_current))
             (mob_dir / OUT_NAME[(dist, "mob")]).write_text(
                 inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
 
@@ -723,7 +779,7 @@ def main():
         mob = (mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
                   .replace("<h1>北投區　", "<h1>全區綜合　"))
         out = splice(mob, '<div class="day">', '<div class="empty">',
-                     render_mobile(mc, show_district=True))
+                     render_mobile(mc, show_district=True, hide_past=is_current))
         (mob_dir / OUT_NAME[("全區", "mob")]).write_text(
             inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True))), encoding="utf-8")
 
@@ -760,8 +816,7 @@ def _region_cards(stats):
       <h2>全區綜合 <small>北投・士林・中山　共 {stats['total']} 堂</small></h2>
       <div class="types">{chips}</div>
       <div class="links">
-        <a href="{esc('大字版/' + OUT_NAME[('全區', 'big')])}">電腦／大字版</a>
-        <a href="{esc('手機版/' + OUT_NAME[('全區', 'mob')])}">手機版</a>
+        <a href="{esc('手機版/' + OUT_NAME[('全區', 'mob')])}" style="background:#3a362d;color:#fff;border:0;">查看課表 ›</a>
       </div>
     </section>""")
     for dist in DISTRICTS:
@@ -772,8 +827,7 @@ def _region_cards(stats):
       <h2>{dist}區 <small>{s['total']} 堂 · {s['days']} 天</small></h2>
       <div class="types">{chips}</div>
       <div class="links">
-        <a href="{esc('大字版/' + OUT_NAME[(dist, 'big')])}">電腦／大字版</a>
-        <a href="{esc('手機版/' + OUT_NAME[(dist, 'mob')])}">手機版</a>
+        <a href="{esc('手機版/' + OUT_NAME[(dist, 'mob')])}" style="background:#3a362d;color:#fff;border:0;">查看課表 ›</a>
       </div>
     </section>""")
     return "\n".join(cards)
