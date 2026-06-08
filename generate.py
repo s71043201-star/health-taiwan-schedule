@@ -509,8 +509,9 @@ def inject_sysnote(page: str):
 COURSE_FILTER_CSS = """<style>
 .cfstep{max-width:1120px;margin:0 auto 8px;font-weight:700;color:#4f4838;font-size:15px;
  display:flex;align-items:center;gap:8px;}
-.cfstep .no,.cfbar .no{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
- border-radius:50%;background:#3a362d;color:#fff;font-size:14px;flex:none;}
+.cfstep .no,.cfbar .no{display:inline-flex;align-items:center;justify-content:center;
+ width:22px;height:22px;border-radius:50%;background:#3a362d;color:#fff;
+ font-size:13px;font-weight:700;line-height:1;flex:none;}
 .cfstep.s1{margin-top:6px;}
 .cfbar{max-width:1120px;margin:0 auto 22px;display:flex;align-items:center;gap:12px;
  background:#fff;border:1.5px solid #e0d9c8;border-radius:12px;padding:12px 16px;
@@ -576,10 +577,10 @@ def inject_course_filter(page: str, courses, show_district=False):
 
     # 下拉選項由 JS 依目前選的處方類型動態產生（見 populate），這裡只放空殼
     bar = (COURSE_FILTER_CSS
-           + '<div class="cfbar"><span class="cfl"><span class="no">②</span>課程查詢</span>'
+           + '<div class="cfbar"><span class="cfl"><span class="no">2</span>課程查詢</span>'
            + '<select id="cfSel" class="cfsel"></select></div>')
     # 步驟①標籤：注入到處方類型篩選（大字版 legend / 手機版 bar）上方
-    step1 = ('<div class="cfstep s1"><span class="no">①</span>'
+    step1 = ('<div class="cfstep s1"><span class="no">1</span>'
              '先選處方類型（想看全部就點「全部」）</div>')
     modal = (
         '<div class="cfmask" id="cfMask"><div class="cfmodal">'
