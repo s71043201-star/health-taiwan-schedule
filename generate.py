@@ -514,8 +514,16 @@ COURSE_FILTER_CSS = """<style>
  background:#fff;border:1.5px solid #e0d9c8;border-radius:12px;padding:12px 16px;
  box-shadow:0 1px 3px rgba(0,0,0,.05);}
 .cfbar .cfl{font-weight:700;color:#4f4838;font-size:15px;white-space:nowrap;}
-.cfsel{flex:1;min-width:0;font-size:16px;padding:10px 12px;border:1.5px solid #d9cfba;
- border-radius:8px;background:#fbfaf6;color:#23211c;font-family:inherit;cursor:pointer;}
+.cfac{position:relative;flex:1;min-width:0;}
+.cfin{width:100%;font-size:16px;padding:10px 12px;border:1.5px solid #d9cfba;border-radius:8px;
+ background:#fbfaf6;color:#23211c;font-family:inherit;}
+.cflist{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:70;background:#fff;
+ border:1.5px solid #d9cfba;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);
+ max-height:300px;overflow:auto;display:none;}
+.cfopt{padding:11px 13px;cursor:pointer;border-bottom:1px solid #f0ebe0;font-size:15px;color:#23211c;}
+.cfopt:last-child{border-bottom:0;}
+.cfopt:hover,.cfopt.active{background:#f4eedd;}
+.cfempty{padding:12px 13px;color:#8a8170;font-size:14px;}
 .cfmask{position:fixed;inset:0;background:rgba(35,33,28,.55);z-index:90;display:none;
  align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;}
 .cfmask.show{display:flex;}
@@ -573,10 +581,12 @@ def inject_course_filter(page: str, courses, show_district=False):
         data.append({"name": n, "dn": esc(n), "tag": tag, "b": b, "slots": slots})
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
-    # 下拉選項由 JS 依目前選的處方類型動態產生（見 populate），這裡只放空殼
+    # 可打字搜尋：輸入關鍵字即時篩選課程清單（清單由 JS 依輸入字＋處方類型動態產生）
     bar = (COURSE_FILTER_CSS
            + '<div class="cfbar"><span class="cfl">課程查詢</span>'
-           + '<select id="cfSel" class="cfsel"></select></div>')
+           + '<div class="cfac"><input id="cfInput" class="cfin" type="text" '
+           + 'placeholder="輸入課程名稱關鍵字…" autocomplete="off">'
+           + '<div class="cflist" id="cfList"></div></div></div>')
     # 步驟①標籤：注入到處方類型篩選（大字版 legend / 手機版 bar）上方
     step1 = '<div class="cfstep s1">先選處方類型（想看全部就點「全部」）</div>'
     modal = (
@@ -586,25 +596,38 @@ def inject_course_filter(page: str, courses, show_district=False):
         '<div class="cfm-sub" id="cfmSub"></div><div class="cfm-body" id="cfmBody"></div>'
         '</div></div>'
         '<script>(function(){var D=' + payload + ';'
-        'var PH=\'<option value="">— 選擇課程，查看所有時段 —</option>\';'
-        'var sel=document.getElementById("cfSel"),mask=document.getElementById("cfMask"),'
-        'head=document.getElementById("cfmHead"),ttl=document.getElementById("cfmTitle"),'
-        'sub=document.getElementById("cfmSub"),body=document.getElementById("cfmBody");'
-        # 依處方類型 tag 過濾下拉內容（tag 為空=全部）；value 仍是 D 的原始索引
-        'function populate(tag){var h=PH,i;for(i=0;i<D.length;i++){if(!tag||D[i].tag===tag){'
-        'h+=\'<option value="\'+i+\'">\'+D[i].dn+"（"+D[i].slots.length+" 場）</option>";}}'
-        'sel.innerHTML=h;sel.value="";}'
+        'var inp=document.getElementById("cfInput"),list=document.getElementById("cfList"),'
+        'mask=document.getElementById("cfMask"),head=document.getElementById("cfmHead"),'
+        'ttl=document.getElementById("cfmTitle"),sub=document.getElementById("cfmSub"),'
+        'body=document.getElementById("cfmBody");var curTag=null;'
+        # 依「輸入關鍵字 + 目前處方類型」過濾，回傳符合的 D 索引
+        'function matches(){var q=inp.value.trim().toLowerCase(),r=[],i;'
+        'for(i=0;i<D.length;i++){if(curTag&&D[i].tag!==curTag)continue;'
+        'if(q&&D[i].name.toLowerCase().indexOf(q)<0)continue;r.push(i);}return r;}'
+        'function renderList(){var ids=matches();list.innerHTML=ids.length?'
+        'ids.map(function(i){return \'<div class="cfopt" data-i="\'+i+\'">\'+D[i].dn+"（"'
+        '+D[i].slots.length+" 場）</div>";}).join(""):\'<div class="cfempty">找不到符合的課程</div>\';'
+        'list.style.display="block";}'
         'function open(i){var c=D[i];if(!c)return;ttl.textContent=c.name;'
         'head.style.borderLeftColor=c.b;sub.textContent=c.tag+"　共 "+c.slots.length+" 場時段";'
         'body.innerHTML=c.slots.map(function(s){return \'<div class="cfslot" style="border-color:\''
         '+s.b+\'"><span class="dt">\'+s.date+"（"+s.wd+"）</span>"'
         '+\'<span class="tm">\'+s.tm+"</span>"+\'<span class="vn">\'+s.venue+"</span></div>";'
-        '}).join("");mask.classList.add("show");}'
-        'function close(){mask.classList.remove("show");sel.value="";}'
-        'sel.onchange=function(){if(sel.value!=="")open(+sel.value);};'
+        '}).join("");mask.classList.add("show");list.style.display="none";}'
+        'function close(){mask.classList.remove("show");}'
+        'function pick(i){open(i);inp.value=D[i].name;}'
+        'inp.addEventListener("focus",renderList);'
+        'inp.addEventListener("input",renderList);'
+        'inp.addEventListener("keydown",function(e){if(e.key==="Enter"){var ids=matches();'
+        'if(ids.length){e.preventDefault();pick(ids[0]);}}});'
+        'list.addEventListener("click",function(e){var o=e.target.closest(".cfopt");'
+        'if(o)pick(+o.getAttribute("data-i"));});'
+        'document.addEventListener("click",function(e){if(!e.target.closest(".cfac"))'
+        'list.style.display="none";});'
         'document.getElementById("cfmX").onclick=close;'
         'mask.onclick=function(e){if(e.target===mask)close();};'
-        'document.addEventListener("keydown",function(e){if(e.key==="Escape")close();});'
+        'document.addEventListener("keydown",function(e){if(e.key==="Escape"){close();'
+        'list.style.display="none";}});'
         # 連動處方類型篩選：大字版 .legend .it（文字）/ 手機版 .bar .chip（data-k 代碼）
         'var K2T={n:"營養",s:"運動",o:"社會",e:"情緒",all:null};'
         'function tagOf(el){if(el.getAttribute&&el.getAttribute("data-k")!=null){'
@@ -612,9 +635,8 @@ def inject_course_filter(page: str, courses, show_district=False):
         'if(el.classList.contains("allk")||el.textContent.trim()==="全部")return null;'
         'return el.textContent.trim().slice(0,2);}'
         'var chips=document.querySelectorAll(".legend .it, .bar .chip");'
-        '[].slice.call(chips).forEach(function(el){'
-        'el.addEventListener("click",function(){populate(tagOf(el));});});'
-        'populate(null);'
+        '[].slice.call(chips).forEach(function(el){el.addEventListener("click",function(){'
+        'curTag=tagOf(el);if(list.style.display==="block")renderList();});});'
         '})();</script>')
     # ① 標籤放在處方類型篩選上方（大字版 legend / 手機版 bar）
     filt = ('<div class="legend">' if '<div class="legend">' in page
