@@ -56,7 +56,172 @@ def resolve_xlsx():
     return _latest_xlsx()
 
 
-XLSX = resolve_xlsx()
+# ---------------------------------------------------------------- 健康處方系統資料來源
+# 課程時段（slots）的兩條自動來源，皆免經 Excel / Google Sheet：
+#   (S) Supabase：n8n 已把 course_slots 同步到 Supabase prescription_data(id='main')，
+#       本程式直接讀那份（公開唯讀 anon key，repo 零帳密）。← 雲端自動更新走這條。
+#   (A) 健康處方系統 API：直接登入 API 逐月抓 slots/summary（需帳密）。
+# 公開 repo 不可寫死帳密，一律由環境變數 / Actions secrets 帶入。
+API_BACKEND = os.environ.get("COURSE_API_BACKEND",
+                             "https://healthcheck-backend.delixir.cc").rstrip("/")
+API_ORIGIN = os.environ.get("COURSE_API_ORIGIN",
+                            "https://healthcheck-rx.delixir.cc")
+
+# Supabase 唯讀來源（anon key 已是公開金鑰、RLS 保護，與 tpma-statistics 共用同一份真相）
+SUPABASE_URL = os.environ.get(
+    "COURSE_SUPABASE_URL", "https://ilcnqpywxaseeyasiwws.supabase.co").rstrip("/")
+SUPABASE_ANON_KEY = os.environ.get(
+    "COURSE_SUPABASE_KEY",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlsY25xcHl3"
+    "eGFzZWV5YXNpd3dzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MzIzODgsImV4cCI6MjA4OTQwODM4OH0"
+    ".TrjIr4IMdvpstkN8tNBQtAEvvNDTLg3XcXXIpptJIs0")
+SUPABASE_ROW_ID = os.environ.get("COURSE_SUPABASE_ROW", "main")
+
+# 處方類型代碼 → TYPE_MAP 的中文 key（API 與 Supabase 同樣用英文代碼）
+API_TYPE_MAP = {
+    "nutrition": "營養處方",
+    "exercise":  "運動處方",
+    "social":    "社會處方",
+    "mental":    "情緒調適處方",
+}
+
+
+def _slot_to_course(s):
+    """把一筆 slot（API 或 Supabase 格式）轉成 course dict。
+       回傳 (course, None) 成功；或 (None, reason)，reason ∈
+       {'cancel', ('loc', 地點), ('type', 類型), 'baddate'}。
+       兩種來源欄位名略有差異，這裡統一吃。"""
+    status = str(s.get("status") or "").strip()
+    if status == "cancelled":                       # 取消不放（對應 Excel 的「取消」）
+        return None, "cancel"
+    loc = s.get("course_location") or s.get("slot_location") or ""
+    district = classify_district(loc)
+    if district is None:
+        return None, ("loc", str(loc))
+    type_code = str(s.get("course_prescription_type") or s.get("course_type") or "").strip().lower()
+    ptype = API_TYPE_MAP.get(type_code)
+    if ptype is None:
+        return None, ("type", type_code)
+    d = _parse_date(s.get("slot_date"))
+    if d is None:
+        return None, "baddate"
+    return {
+        "name": str(s.get("course_name") or "").strip(),
+        "type": ptype,
+        "date": d.isoformat(),
+        "start": _hhmm(s.get("start_time")),
+        "end": _hhmm(s.get("end_time")),
+        "venue": str(loc).strip(),
+        "district": district,
+        "enrolled": _int(s.get("booked_count")),
+        "capacity": _int(s.get("capacity_effective") or s.get("capacity")),
+        "full": bool(s.get("is_full")),
+        "status": status,
+    }, None
+
+
+def _slots_to_courses(slots):
+    """共用：把 slots 清單轉成 courses，並彙整略過統計。"""
+    courses, skipped_cancel = [], 0
+    unknown_loc, unknown_type = Counter(), Counter()
+    for s in slots:
+        course, reason = _slot_to_course(s)
+        if course is not None:
+            courses.append(course)
+        elif reason == "cancel":
+            skipped_cancel += 1
+        elif isinstance(reason, tuple) and reason[0] == "loc":
+            unknown_loc[reason[1]] += 1
+        elif isinstance(reason, tuple) and reason[0] == "type":
+            unknown_type[reason[1]] += 1
+    return courses, skipped_cancel, unknown_loc, unknown_type
+
+
+def load_courses_supabase():
+    """讀 Supabase prescription_data(id='main') 的 course_slots（n8n 已同步好的那份）。"""
+    url = (SUPABASE_URL + "/rest/v1/prescription_data"
+           f"?id=eq.{SUPABASE_ROW_ID}&select=course_slots")
+    req = urllib.request.Request(url, headers={
+        "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY})
+    with urllib.request.urlopen(req) as r:
+        rows = json.loads(r.read().decode("utf-8"))
+    if not rows:
+        raise SystemExit(f"❌ Supabase 找不到 id='{SUPABASE_ROW_ID}' 的列。")
+    slots = rows[0].get("course_slots") or []
+    return _slots_to_courses(slots)
+
+
+def _api_login(account, password):
+    body = json.dumps({"account": account, "password": password}).encode("utf-8")
+    req = urllib.request.Request(
+        API_BACKEND + "/api/v1/auth/login", data=body, method="POST",
+        headers={"Content-Type": "application/json", "Origin": API_ORIGIN})
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read().decode("utf-8"))["access_token"]
+
+
+def _api_get(path, qs, token):
+    import urllib.parse
+    url = API_BACKEND + path + "?" + urllib.parse.urlencode(qs)
+    req = urllib.request.Request(
+        url, headers={"Authorization": "Bearer " + token, "Origin": API_ORIGIN})
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _month_ranges(start: dt.date, end: dt.date):
+    """逐月產生 (該月首日, 該月末日)，涵蓋 start~end。"""
+    cur = dt.date(start.year, start.month, 1)
+    while cur <= end:
+        nxt = dt.date(cur.year + cur.month // 12, cur.month % 12 + 1, 1)
+        yield cur, nxt - dt.timedelta(days=1)
+        cur = nxt
+
+
+def _hhmm(t):
+    """'09:00:00' → '09:00'；容錯空值。"""
+    s = str(t or "").strip()
+    return s[:5] if len(s) >= 5 else s
+
+
+def load_courses_api(account, password, start_date, end_date):
+    """從健康處方系統 API 逐月抓 slots/summary，組成 courses（與 Supabase 來源共用轉換）。"""
+    import urllib.error
+    token = _api_login(account, password)
+    slots = []
+    for mstart, mend in _month_ranges(start_date, end_date):
+        qs = {"start_date": mstart.isoformat(), "end_date": mend.isoformat(),
+              "recent_page": 1, "recent_page_size": 1}
+        try:
+            data = _api_get("/api/v1/admin/slots/summary", qs, token)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):     # token 過期就重登一次再試
+                token = _api_login(account, password)
+                data = _api_get("/api/v1/admin/slots/summary", qs, token)
+            else:
+                raise
+        slots.extend(data.get("slots", []))
+    return _slots_to_courses(slots)
+
+
+def resolve_source():
+    """決定資料來源，回傳 (kind, payload)。優先序：
+       1. 'supabase'：COURSE_SOURCE=supabase（或設了 COURSE_SUPABASE_KEY）→ 讀 n8n 同步好的 Supabase。
+       2. 'api'：設了 COURSE_API_ACCOUNT + COURSE_API_PASSWORD → 直接登入 API 抓。
+       3. 'xlsx'：fallback 到 Google Sheet（COURSE_XLSX_URL）或 data/ 內的 Excel。"""
+    src = os.environ.get("COURSE_SOURCE", "").strip().lower()
+    acc = os.environ.get("COURSE_API_ACCOUNT", "").strip()
+    pwd = os.environ.get("COURSE_API_PASSWORD", "").strip()
+    if src == "supabase" or (not src and os.environ.get("COURSE_SUPABASE_KEY", "").strip()):
+        return ("supabase", None)
+    if src == "api" or (not src and acc and pwd):
+        start = (_parse_date(os.environ.get("COURSE_START_DATE", "").strip())
+                 or dt.date(2025, 12, 20))
+        end_env = os.environ.get("COURSE_END_DATE", "").strip()
+        end = _parse_date(end_env) if end_env else (dt.date.today() + dt.timedelta(days=183))
+        return ("api", (acc, pwd, start, end))
+    return ("xlsx", resolve_xlsx())
+
 
 # ---------------------------------------------------------------- 分類設定
 # 處方類型 → (data-key, 標籤, 邊框色, 背景色)
@@ -115,21 +280,21 @@ def classify_district(loc: str):
     # 北投關鍵字
     if any(k in s for k in ("北投", "石牌", "榮陽", "蔡秉勳", "翰譽耳鼻喉",
                             "永安", "瑜伽之光", "臻心", "ULifeFitnes",
-                            "ULifeFitness")):
+                            "ULifeFitness", "泉源", "王永良")):
         return "北投"
     # 士林關鍵字
     if any(k in s for k in ("士林", "天母", "ZenYoga", "小船254", "後街21巷",
                             "福港街", "福華路")):
         return "士林"
     # 中山關鍵字
-    if any(k in s for k in ("中山", "圓山", "夢想館", "晨昕")):
+    if any(k in s for k in ("中山", "圓山", "夢想館", "晨昕", "劍南")):
         return "中山"
     return None
 
 
 # ---------------------------------------------------------------- 讀取資料
-def load_courses():
-    wb = openpyxl.load_workbook(XLSX, read_only=True, data_only=True)
+def load_courses(xlsx_path):
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
     rows = list(ws.iter_rows(values_only=True))
     header = rows[0]
@@ -369,6 +534,14 @@ body{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
  margin-bottom:16px;text-decoration:none;color:#23211c;box-shadow:0 1px 3px rgba(0,0,0,.05);
  display:flex;align-items:center;justify-content:space-between;}
 .month b{font-size:22px;}.month span{color:#8a8170;font-weight:600;}
+.past{margin:0 0 18px;border:1.5px dashed #d9cfba;border-radius:14px;background:#fdfcf9;}
+.past>summary{list-style:none;cursor:pointer;padding:16px 20px;font-weight:700;
+ color:#6b6354;display:flex;align-items:center;justify-content:space-between;}
+.past>summary::-webkit-details-marker{display:none;}
+.past>summary .arr{color:#b7ad99;transition:transform .2s;font-size:18px;}
+.past[open]>summary .arr{transform:rotate(90deg);}
+.past .month{margin:0 14px 12px;padding:14px 18px;}
+.past .month b{font-size:18px;}
 .notice{background:#FBEFE4;border:1.5px solid #E0A86B;border-radius:12px;
  padding:16px 18px;margin-bottom:26px;color:#5c4326;}
 .notice .nt{font-weight:800;font-size:16px;margin:0 0 4px;color:#9a5a1f;}
@@ -391,8 +564,25 @@ def notice_html(img_prefix):
 
 # ---------------------------------------------------------------- 主流程
 def main():
-    print(f"來源 Excel：{XLSX.name}")
-    courses, header, skipped, unknown = load_courses()
+    kind, src = resolve_source()
+    unknown_type = None
+    if kind == "supabase":
+        print(f"來源：Supabase course_slots（{SUPABASE_URL}，id='{SUPABASE_ROW_ID}'，由 n8n 同步）")
+        courses, skipped, unknown, unknown_type = load_courses_supabase()
+        source_name = "supabase:n8n-sync"
+    elif kind == "api":
+        account, password, start, end = src
+        print(f"來源：健康處方系統 API（帳號 {account}，{start} ~ {end}）")
+        courses, skipped, unknown, unknown_type = load_courses_api(account, password, start, end)
+        source_name = "healthcheck-api"
+    else:
+        print(f"來源 Excel：{src.name}")
+        courses, _header, skipped, unknown = load_courses(src)
+        source_name = src.name
+    if unknown_type:
+        print("⚠ 未知處方類型（已略過）：")
+        for k, v in unknown_type.most_common():
+            print(f"   {k}  ×{v}")
     print(f"讀入 {len(courses)} 筆（已排除取消 {skipped} 筆）")
     if unknown:
         print("⚠ 無法歸類的地點：")
@@ -452,7 +642,7 @@ def main():
     # 資料庫 JSON（所有月份）
     db = {
         "months": [f"{y}-{m:02d}" for (y, m) in month_keys],
-        "source": XLSX.name,
+        "source": source_name,
         "total": len(courses),
         "courses": sorted(courses, key=lambda c: (c["district"],) + sort_key(c)),
     }
@@ -512,13 +702,33 @@ def write_month_index(mdir, year, month, stats):
     (mdir / "index.html").write_text(page, encoding="utf-8")
 
 
+def _month_btn(year, month, total):
+    href = esc(f"{year}-{month:02d}/index.html")
+    return (f'<a class="month" href="{href}">'
+            f'<b>{year} 年 {month} 月</b><span>{total} 堂 ›</span></a>')
+
+
 def write_root_index(month_infos):
-    buttons = []
-    for (year, month, total) in month_infos:
-        href = esc(f"{year}-{month:02d}/index.html")
-        buttons.append(f'<a class="month" href="{href}">'
-                       f'<b>{year} 年 {month} 月</b><span>{total} 堂 ›</span></a>')
-    body = "\n".join(buttons) if buttons else '<p style="text-align:center;color:#8a8170">目前沒有課程資料</p>'
+    """當月與未來月份正常列出；過去月份收進可點開的『過往月份』區塊。"""
+    today = dt.date.today()
+    cur = (today.year, today.month)
+    upcoming = [mi for mi in month_infos if (mi[0], mi[1]) >= cur]
+    past = [mi for mi in month_infos if (mi[0], mi[1]) < cur]
+
+    parts = []
+    if past:                                                # 過往月份收合，放最上面
+        past_btns = "\n".join(_month_btn(*mi) for mi in past)  # 舊到新（2→5 月）
+        parts.append(
+            '<details class="past"><summary>'
+            f'<span>過往月份（{len(past)}）</span><span class="arr">›</span></summary>'
+            f'{past_btns}</details>')
+    if upcoming:
+        parts.append("\n".join(_month_btn(*mi) for mi in upcoming))
+    elif past:
+        parts.append('<p style="text-align:center;color:#8a8170">本月與未來尚無課程，'
+                     '可展開上方查詢過往月份。</p>')
+    body = ("\n".join(parts) if parts
+            else '<p style="text-align:center;color:#8a8170">目前沒有課程資料</p>')
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>健康台灣深耕計畫 · 課程表</title>

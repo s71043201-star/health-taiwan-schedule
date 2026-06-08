@@ -1,0 +1,128 @@
+<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>士林區課程表</title><style>
+*{box-sizing:border-box;}
+body{margin:0;padding:56px 28px 80px;color:#262420;background:#FBFAF6;
+ font-family:"Noto Sans TC","Hiragino Kaku Gothic ProN","Yu Gothic","Microsoft JhengHei",sans-serif;
+ font-weight:400;letter-spacing:.01em;line-height:1.65;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:1120px;margin:0 auto;}
+.head{text-align:center;margin-bottom:44px;}
+.head .ey{font-size:13px;letter-spacing:.32em;color:#7a715f;text-transform:uppercase;margin-bottom:16px;font-weight:500;}
+.head h1{margin:0;font-size:32px;font-weight:700;letter-spacing:.06em;color:#23211c;}
+.head .rule{width:40px;height:2px;background:#b7ad99;margin:20px auto;}
+.head .sub{font-size:16px;color:#4f4838;letter-spacing:.1em;font-weight:500;}
+.legend{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-bottom:46px;
+ font-size:16px;letter-spacing:.04em;color:#2f2c25;font-weight:600;}
+.legend .it{display:flex;align-items:center;gap:9px;padding:6px 14px;border-radius:6px;border:1.5px solid;}
+.week{margin-bottom:48px;}
+.week-label{display:flex;align-items:baseline;gap:14px;margin-bottom:14px;
+ padding-bottom:10px;border-bottom:2px solid #ddd4c2;}
+.week-label .no{font-size:14px;letter-spacing:.18em;color:#8a7d63;text-transform:uppercase;font-weight:700;}
+.week-label .rg{font-size:18px;color:#33302a;letter-spacing:.05em;font-weight:600;}
+table{width:100%;border-collapse:collapse;table-layout:fixed;}
+th{font-weight:500;font-size:14px;color:#4f4838;padding:6px 8px 12px;text-align:left;
+ border-bottom:2px solid #ddd4c2;vertical-align:bottom;letter-spacing:.04em;}
+th .wd{font-size:19px;color:#23211c;display:block;font-weight:700;}
+th .en{font-size:11px;letter-spacing:.18em;color:#8a8170;}
+th.tcol{width:66px;color:#6a6252;}
+td{border-bottom:1px solid #ece5d6;padding:7px 6px;vertical-align:top;}
+td.time{color:#4f4838;font-size:16px;letter-spacing:.02em;padding-top:11px;width:66px;font-weight:700;}
+.course{display:block;padding:9px 13px;margin:6px 0;border-left:5px solid;border-radius:3px;
+ background:#fff;font-size:16px;line-height:1.55;box-shadow:0 1px 2px rgba(0,0,0,.05);}
+.course .tag{font-size:13px;letter-spacing:.05em;padding:2px 9px;border-radius:4px;margin-right:8px;font-weight:700;}
+.course .tm{color:#3f3a30;font-size:15px;margin-right:7px;font-weight:700;}
+.course .nm{color:#1f1d18;font-weight:500;}
+.course .vn{display:block;font-size:14px;color:#5b5446;margin-top:3px;letter-spacing:.01em;}
+.foot{text-align:center;margin-top:60px;font-size:13px;letter-spacing:.18em;color:#8a8170;}
+@media(max-width:760px){body{padding:36px 14px 60px;}th .en{display:none;}.course{font-size:17px;}}
+</style></head><body><div class="wrap"><div class="sysnote">📌 本頁僅供查詢課表；要<b>預約課程</b>請至 LINE 圖文選單的「預約課程」。</div><style>.sysnote{margin:0 auto 16px;max-width:1120px;background:#FBEFE4;border:1.5px solid #E0A86B;border-radius:10px;padding:10px 14px;color:#5c4326;font-size:15px;font-weight:600;line-height:1.5;}.sysnote b{color:#9a5a1f;}</style>
+<div class="head"><div class="ey">Healthy Taiwan Program</div><h1>士林區　二月課程表</h1><div class="rule"></div><div class="sub">2026 . 02　四大處方</div></div>
+<div class="legend"><span class="it" style="background:#EAF0E0;border-color:#445230;color:#445230">營養處方</span><span class="it" style="background:#F4EADD;border-color:#72491F;color:#72491F">運動處方</span><span class="it" style="background:#E4EDF4;border-color:#385268;color:#385268">社會處方</span><span class="it" style="background:#F4E8EE;border-color:#6E4858;color:#6E4858">情緒調適處方</span></div>
+<div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
+</div><style id="calCSS">
+.calfab{position:fixed;right:20px;bottom:22px;z-index:60;width:56px;height:56px;border-radius:50%;border:none;background:#3a362d;color:#fff;font-size:26px;box-shadow:0 3px 12px rgba(0,0,0,.25);cursor:pointer;}
+.calmask{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;padding:20px;}
+.calmask.show{display:flex;}
+.calbox{background:#FBFAF6;border-radius:14px;width:100%;max-width:380px;padding:18px 18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+.calhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.calhd b{font-size:19px;color:#23211c;font-weight:700;}
+.calx{border:none;background:transparent;font-size:22px;color:#6a6252;cursor:pointer;line-height:1;}
+.calwk,.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.calwk{margin-bottom:6px;}.calwk span{text-align:center;font-size:13px;color:#8a8170;font-weight:700;}
+.calcell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:8px;font-size:16px;font-weight:600;color:#cdc6b5;}
+.calcell.has{background:#fff;color:#23211c;border:1.5px solid #d9cfba;cursor:pointer;position:relative;}
+.calcell.has::after{content:"";position:absolute;bottom:6px;width:5px;height:5px;border-radius:50%;background:#72491F;}
+.calcell.has:hover{background:#efe9dc;}
+.calhint{margin-top:14px;text-align:center;font-size:13px;color:#8a8170;}
+.colflash{animation:colflash 1.8s ease;}
+@keyframes colflash{0%,30%{background:#fbeec4;}100%{background:transparent;}}
+.legend .it{cursor:pointer;user-select:none;transition:opacity .15s;}
+.legend.filtering .it:not(.on){opacity:.3;}
+.legend .it.on:not(.allk){box-shadow:0 0 0 2px currentColor;}
+.legend .it.allk{background:#fff;border-color:#cfc6b3;color:#3a362d;font-weight:700;}
+.legend .it.allk.on{background:#3a362d;border-color:#3a362d;color:#fff;}
+</style>
+<div class="calmask" id="calMask"><div class="calbox">
+<div class="calhd"><b>2026 年 2 月</b><button class="calx" id="calX">✕</button></div>
+<div class="calwk"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+<div class="calgrid" id="calGrid"></div>
+<div class="calhint">點選有課程的日期即可跳轉至該週</div>
+</div></div>
+<button class="calfab" id="calFab" title="選擇日期">📅</button>
+<script>
+(function(){var Y=2026,M=2;
+var mask=document.getElementById('calMask'),grid=document.getElementById('calGrid');
+function indexDates(){var map={};document.querySelectorAll('.week table').forEach(function(tb){
+ tb.querySelectorAll('thead th').forEach(function(th,ci){
+  var mm=th.textContent.match(/(\d+)\/(\d+)\s*$/);if(!mm)return;
+  map[mm[1]+'/'+mm[2]]={table:tb,col:ci,th:th};});});return map;}
+var IDX=indexDates();
+function hasCourse(info){var rows=info.table.querySelectorAll('tbody tr');
+ for(var i=0;i<rows.length;i++){var c=rows[i].children[info.col];if(!c)continue;
+  var cs=c.querySelectorAll('.course');for(var j=0;j<cs.length;j++){if(cs[j].style.display!=='none')return true;}}return false;}
+document.getElementById('calFab').onclick=function(){build();mask.classList.add('show');};
+document.getElementById('calX').onclick=function(){mask.classList.remove('show');};
+mask.onclick=function(e){if(e.target===mask)mask.classList.remove('show');};
+function build(){var first=new Date(Y,M-1,1).getDay(),n=new Date(Y,M,0).getDate();
+ grid.innerHTML='';
+ for(var i=0;i<first;i++){var b=document.createElement('div');b.className='calcell';grid.appendChild(b);}
+ for(let d=1;d<=n;d++){let c=document.createElement('div');c.className='calcell';c.textContent=d;
+  let info=IDX[M+'/'+d];
+  if(info&&hasCourse(info)){c.className='calcell has';c.onclick=function(){mask.classList.remove('show');jump(info);};}
+  grid.appendChild(c);}}
+function jump(info){var wk=info.table.closest('.week');
+ var y=wk.getBoundingClientRect().top+window.pageYOffset-10;window.scrollTo({top:y,behavior:'smooth'});
+ var cells=[info.th];info.table.querySelectorAll('tbody tr').forEach(function(r){var c=r.children[info.col];if(c)cells.push(c);});
+ cells.forEach(function(c){c.classList.remove('colflash');void c.offsetWidth;c.classList.add('colflash');});}
+/* 處方類型篩選（沿用上方圖例 UI） */
+var legend=document.querySelector('.legend');
+if(legend){
+ var items=[].slice.call(legend.querySelectorAll('.it'));
+ var allChip=document.createElement('span');allChip.className='it allk';allChip.textContent='全部';
+ legend.insertBefore(allChip,legend.firstChild);
+ var chips=[allChip].concat(items);
+ function setActive(el){chips.forEach(function(c){c.classList.remove('on');});el.classList.add('on');}
+ function flt(key){
+  document.querySelectorAll('.course').forEach(function(co){var t=co.querySelector('.tag');var k=t?t.textContent.trim():'';co.style.display=(!key||k===key)?'':'none';});
+  document.querySelectorAll('.week').forEach(function(wk){var anyW=false;
+   wk.querySelectorAll('tbody tr').forEach(function(tr){var any=[].slice.call(tr.querySelectorAll('.course')).some(function(c){return c.style.display!=='none';});tr.style.display=any?'':'none';if(any)anyW=true;});
+   wk.style.display=anyW?'':'none';});
+  legend.classList.toggle('filtering',!!key);}
+ allChip.onclick=function(){setActive(allChip);flt(null);};
+ items.forEach(function(it){var key=it.textContent.trim().slice(0,2);it.onclick=function(){setActive(it);flt(key);};});
+ setActive(allChip);
+}
+})();
+</script>
+<style>
+.topfab{position:fixed;right:18px;bottom:90px;z-index:60;width:46px;height:46px;border-radius:50%;background:#fff;color:#3a362d;border:1.5px solid #d9cfba;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer;display:none;line-height:1;}
+.topfab.show{display:block;}
+</style>
+<button class="topfab" id="topFab" title="回到頂部">↑</button>
+<script>
+(function(){var t=document.getElementById('topFab');
+function upd(){t.classList.toggle('show',(window.pageYOffset||document.documentElement.scrollTop)>300);}
+window.addEventListener('scroll',upd);upd();
+t.onclick=function(){window.scrollTo({top:0,behavior:'smooth'});};})();
+</script>
+<a class="homefab" href="../index.html">← 主選單</a><style>.homefab{position:fixed;left:16px;bottom:18px;z-index:65;background:#3a362d;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 16px;border-radius:999px;box-shadow:0 3px 10px rgba(0,0,0,.25);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;}</style></body></html>

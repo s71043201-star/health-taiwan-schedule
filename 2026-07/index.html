@@ -27,6 +27,14 @@ body{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
  margin-bottom:16px;text-decoration:none;color:#23211c;box-shadow:0 1px 3px rgba(0,0,0,.05);
  display:flex;align-items:center;justify-content:space-between;}
 .month b{font-size:22px;}.month span{color:#8a8170;font-weight:600;}
+.past{margin:0 0 18px;border:1.5px dashed #d9cfba;border-radius:14px;background:#fdfcf9;}
+.past>summary{list-style:none;cursor:pointer;padding:16px 20px;font-weight:700;
+ color:#6b6354;display:flex;align-items:center;justify-content:space-between;}
+.past>summary::-webkit-details-marker{display:none;}
+.past>summary .arr{color:#b7ad99;transition:transform .2s;font-size:18px;}
+.past[open]>summary .arr{transform:rotate(90deg);}
+.past .month{margin:0 14px 12px;padding:14px 18px;}
+.past .month b{font-size:18px;}
 .notice{background:#FBEFE4;border:1.5px solid #E0A86B;border-radius:12px;
  padding:16px 18px;margin-bottom:26px;color:#5c4326;}
 .notice .nt{font-weight:800;font-size:16px;margin:0 0 4px;color:#9a5a1f;}

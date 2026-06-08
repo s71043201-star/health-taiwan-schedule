@@ -41,8 +41,18 @@ jobs:
 
       - name: 產生課表網頁
         env:
-          # 設定 repo 變數 SHEET_XLSX_URL（試算表 xlsx 匯出網址）後，
-          # 會改從共用試算表抓資料；未設定則用 data/ 內的 Excel。
+          # 預設來源 = Supabase：n8n 每天從健康處方系統把 course_slots 同步到 Supabase，
+          # 這裡每 5 分鐘讀那份重建（公開唯讀 anon key，無需任何 secret）。
+          # 要改回別的來源就改 COURSE_SOURCE，或留空讓程式自動判斷：
+          #  - COURSE_SOURCE=api + secrets COURSE_API_ACCOUNT/PASSWORD → 直接登入 API 抓
+          #  - 設 vars SHEET_XLSX_URL（且未走上面兩條）→ 共用 Google Sheet
+          #  - 都沒有 → data/ 內最新的 Excel
+          COURSE_SOURCE: supabase
+          # 以下為非預設來源時才需要（API 帳密放 Secrets、其餘放 Variables）：
+          COURSE_API_ACCOUNT: ${{ secrets.COURSE_API_ACCOUNT }}
+          COURSE_API_PASSWORD: ${{ secrets.COURSE_API_PASSWORD }}
+          COURSE_START_DATE: ${{ vars.COURSE_START_DATE }}
+          COURSE_END_DATE: ${{ vars.COURSE_END_DATE }}
           COURSE_XLSX_URL: ${{ vars.SHEET_XLSX_URL }}
         run: python generate.py
 

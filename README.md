@@ -31,13 +31,38 @@
 
 ## 新增 / 更新課表
 
-> **推薦：共用 Google Sheet 自動更新** — 設定一次後，大家只要編輯共用試算表存檔，
-> 網站數秒～1 分鐘自動更新，免碰 GitHub、免開電腦。設定步驟見
-> [`SETUP_雲端試算表.md`](SETUP_雲端試算表.md)。
+> **預設：全自動，免手動** — n8n 每天從健康處方系統把課程時段同步到 Supabase，
+> GitHub Actions 每 5 分鐘讀 Supabase 重建。**平常完全不用碰**，課程在原系統異動後，
+> 數分鐘內網站自動跟上。架構見下方「資料來源」。
 
-以下為手動方式。程式資料來源優先序：
-1. 環境變數 `COURSE_XLSX_URL`（試算表匯出網址，雲端自動更新走這條）。
-2. 否則讀 `data/` 內**修改時間最新**的 `.xlsx`（檔名隨意）。
+程式資料來源優先序（由 `COURSE_SOURCE` 指定，未指定時自動判斷）：
+1. **Supabase**（預設）：`COURSE_SOURCE=supabase`，讀 n8n 已同步好的 `course_slots`。
+2. **健康處方系統 API**：`COURSE_SOURCE=api` + `COURSE_API_ACCOUNT` / `COURSE_API_PASSWORD`，
+   直接登入 API 逐月抓 `slots/summary`。
+3. **共用 Google Sheet**：環境變數 `COURSE_XLSX_URL`（試算表 xlsx 匯出網址）。
+4. 否則讀 `data/` 內**修改時間最新**的 `.xlsx`（檔名隨意）。
+
+> 共同規則：英文處方類型（`nutrition`/`exercise`/`social`/`mental`）自動轉中文；
+> 狀態 `cancelled` 一律排除（等同 Excel 的「取消」）；行政區靠 `classify_district()` 判斷。
+
+### 資料來源（自動更新架構）
+
+```
+健康處方系統 API
+   ↓ n8n（本機 Windows service，每天 09:30 / 15:00 抓）
+Supabase prescription_data(id='main').course_slots
+   ↓ GitHub Actions（build.yml，每 5 分鐘 + 變動觸發）讀 Supabase 跑 generate.py
+GitHub Pages 自動更新
+```
+
+- **Supabase（預設）**：anon 唯讀金鑰是公開金鑰、RLS 保護，已內建於 `generate.py`，
+  公開 repo 不放任何帳密。可用 `COURSE_SUPABASE_URL` / `COURSE_SUPABASE_KEY` /
+  `COURSE_SUPABASE_ROW` 覆寫。
+- **直接打 API（備援）**：`COURSE_SOURCE=api`。帳密**嚴禁寫進程式碼**，放
+  repo ▸ Settings ▸ Secrets and variables ▸ Actions ▸ **Secrets**
+  （`COURSE_API_ACCOUNT` / `COURSE_API_PASSWORD`）。範圍用 **Variables** 覆寫
+  `COURSE_START_DATE`（預設 `2025-12-20`）/ `COURSE_END_DATE`（預設今天 + 6 個月）。
+- 本機測試：`COURSE_SOURCE=supabase python generate.py`。
 
 ### 方法 A：在 GitHub 網站上傳（推薦，免裝任何東西、不限本機）
 
