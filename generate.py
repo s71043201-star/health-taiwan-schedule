@@ -541,6 +541,7 @@ COURSE_FILTER_CSS = """<style>
 .pastdays[open]>summary .arr{transform:rotate(90deg);}
 .pastdays .day{margin:0 12px 12px;}
 @media(max-width:760px){.cfbar{flex-direction:column;align-items:stretch;gap:8px;}
+ .cfstep{padding-left:14px;}
  .cfslot{flex-wrap:wrap;}
  .cfslot .vn{flex-basis:100%;margin-left:0;text-align:left;margin-top:3px;}}
 </style>"""
