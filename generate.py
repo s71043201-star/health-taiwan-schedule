@@ -493,6 +493,95 @@ def inject_sysnote(page: str):
     return page.replace('<div class="wrap">', '<div class="wrap">' + SYSNOTE, 1)
 
 
+# ---------------------------------------------------------------- 課程查詢（下拉選單 + 時段 modal）
+COURSE_FILTER_CSS = """<style>
+.cfbar{max-width:1120px;margin:0 auto 22px;display:flex;align-items:center;gap:12px;
+ background:#fff;border:1.5px solid #e0d9c8;border-radius:12px;padding:12px 16px;
+ box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.cfbar .cfl{font-weight:700;color:#4f4838;font-size:15px;white-space:nowrap;}
+.cfsel{flex:1;min-width:0;font-size:16px;padding:10px 12px;border:1.5px solid #d9cfba;
+ border-radius:8px;background:#fbfaf6;color:#23211c;font-family:inherit;cursor:pointer;}
+.cfmask{position:fixed;inset:0;background:rgba(35,33,28,.55);z-index:90;display:none;
+ align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;}
+.cfmask.show{display:flex;}
+.cfmodal{background:#FBFAF6;max-width:520px;width:100%;border-radius:16px;
+ box-shadow:0 12px 40px rgba(0,0,0,.3);overflow:hidden;}
+.cfm-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+ padding:18px 20px 8px;border-left:6px solid;}
+.cfm-h #cfmTitle{font-size:19px;font-weight:700;color:#23211c;line-height:1.4;}
+.cfm-x{border:0;background:#ece5d6;color:#5b5446;width:32px;height:32px;border-radius:50%;
+ font-size:15px;cursor:pointer;flex:none;}
+.cfm-sub{padding:0 20px 14px;color:#8a8170;font-size:14px;font-weight:600;}
+.cfm-body{padding:0 16px 18px;}
+.cfslot{display:flex;align-items:center;gap:10px;padding:11px 13px;margin:7px 0;background:#fff;
+ border-left:5px solid;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.05);font-size:15px;}
+.cfslot .dt{font-weight:700;color:#23211c;white-space:nowrap;}
+.cfslot .tm{color:#3f3a30;font-weight:600;white-space:nowrap;}
+.cfslot .vn{color:#5b5446;font-size:13px;margin-left:auto;text-align:right;line-height:1.4;}
+@media(max-width:760px){.cfbar{flex-direction:column;align-items:stretch;gap:8px;}
+ .cfslot{flex-wrap:wrap;}
+ .cfslot .vn{flex-basis:100%;margin-left:0;text-align:left;margin-top:3px;}}
+</style>"""
+
+
+def inject_course_filter(page: str, courses, show_district=False):
+    """注入「課程下拉選單 → 點選跳出該課全部時段」的查詢介面。
+       不爬 DOM，直接把該頁課程依名稱分組後以 JSON 嵌入，modal 讀它呈現。"""
+    if not courses:
+        return page
+    order = list(TYPE_MAP)
+    by_name = defaultdict(list)
+    for c in sorted(courses, key=sort_key):
+        by_name[c["name"]].append(c)
+    names = sorted(by_name, key=lambda n: (order.index(by_name[n][0]["type"])
+                   if by_name[n][0]["type"] in order else 99, n))
+
+    opts = ['<option value="">— 選擇課程，查看所有時段 —</option>']
+    data = []
+    for i, n in enumerate(names):
+        lst = by_name[n]
+        opts.append(f'<option value="{i}">{esc(n)}（{len(lst)} 場）</option>')
+        _, tag, b, _bg = TYPE_MAP[lst[0]["type"]]
+        slots = []
+        for c in lst:
+            d = dt.date.fromisoformat(c["date"])
+            _, _tag, sb, _ = TYPE_MAP[c["type"]]
+            venue = (f'［{c["district"]}］' if show_district else "") + c["venue"]
+            slots.append({"date": f"{d.month}/{d.day}", "wd": WD_ZH[(d.weekday() + 1) % 7],
+                          "tm": tm_str(c), "venue": esc(venue), "b": sb})
+        data.append({"name": n, "tag": tag, "b": b, "slots": slots})
+    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+
+    bar = (COURSE_FILTER_CSS
+           + '<div class="cfbar"><span class="cfl">🔎 課程查詢</span>'
+           + f'<select id="cfSel" class="cfsel">{"".join(opts)}</select></div>')
+    modal = (
+        '<div class="cfmask" id="cfMask"><div class="cfmodal">'
+        '<div class="cfm-h" id="cfmHead"><span id="cfmTitle"></span>'
+        '<button class="cfm-x" id="cfmX" aria-label="關閉">✕</button></div>'
+        '<div class="cfm-sub" id="cfmSub"></div><div class="cfm-body" id="cfmBody"></div>'
+        '</div></div>'
+        '<script>(function(){var D=' + payload + ';'
+        'var sel=document.getElementById("cfSel"),mask=document.getElementById("cfMask"),'
+        'head=document.getElementById("cfmHead"),ttl=document.getElementById("cfmTitle"),'
+        'sub=document.getElementById("cfmSub"),body=document.getElementById("cfmBody");'
+        'function open(i){var c=D[i];if(!c)return;ttl.textContent=c.name;'
+        'head.style.borderLeftColor=c.b;sub.textContent=c.tag+"　共 "+c.slots.length+" 場時段";'
+        'body.innerHTML=c.slots.map(function(s){return \'<div class="cfslot" style="border-color:\''
+        '+s.b+\'"><span class="dt">\'+s.date+"（"+s.wd+"）</span>"'
+        '+\'<span class="tm">\'+s.tm+"</span>"+\'<span class="vn">\'+s.venue+"</span></div>";'
+        '}).join("");mask.classList.add("show");}'
+        'function close(){mask.classList.remove("show");sel.value="";}'
+        'sel.onchange=function(){if(sel.value!=="")open(+sel.value);};'
+        'document.getElementById("cfmX").onclick=close;'
+        'mask.onclick=function(e){if(e.target===mask)close();};'
+        'document.addEventListener("keydown",function(e){if(e.key==="Escape")close();});'
+        '})();</script>')
+    page = page.replace('<div class="wrap">', '<div class="wrap">' + bar, 1)
+    page = page.replace('</body>', modal + '</body>', 1)
+    return page
+
+
 # ---------------------------------------------------------------- 統計
 def build_stats(courses):
     stats = {"total": len(courses), "by_district": {}}
@@ -614,10 +703,12 @@ def main():
             dc = [c for c in mc if c["district"] == dist]
             tpl = restamp((TPL / TPL_NAME[(dist, "big")]).read_text(encoding="utf-8"), year, month)
             out = splice(tpl, '<div class="week">', '<div class="foot">', render_big(dc))
-            (big_dir / OUT_NAME[(dist, "big")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
+            (big_dir / OUT_NAME[(dist, "big")]).write_text(
+                inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
             tpl = restamp((TPL / TPL_NAME[(dist, "mob")]).read_text(encoding="utf-8"), year, month)
             out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
-            (mob_dir / OUT_NAME[(dist, "mob")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
+            (mob_dir / OUT_NAME[(dist, "mob")]).write_text(
+                inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
 
         # 全區綜合（三區合併，課程標出所屬區）
         big = restamp((TPL / TPL_NAME[("北投", "big")]).read_text(encoding="utf-8"), year, month)
@@ -625,14 +716,16 @@ def main():
                   .replace("<h1>北投區　", "<h1>全區綜合　"))
         out = splice(big, '<div class="week">', '<div class="foot">',
                      render_big(mc, show_district=True))
-        (big_dir / OUT_NAME[("全區", "big")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
+        (big_dir / OUT_NAME[("全區", "big")]).write_text(
+            inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True))), encoding="utf-8")
 
         mob = restamp((TPL / TPL_NAME[("北投", "mob")]).read_text(encoding="utf-8"), year, month)
         mob = (mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
                   .replace("<h1>北投區　", "<h1>全區綜合　"))
         out = splice(mob, '<div class="day">', '<div class="empty">',
                      render_mobile(mc, show_district=True))
-        (mob_dir / OUT_NAME[("全區", "mob")]).write_text(inject_back(inject_sysnote(out)), encoding="utf-8")
+        (mob_dir / OUT_NAME[("全區", "mob")]).write_text(
+            inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True))), encoding="utf-8")
 
         write_month_index(mdir, year, month, stats)
         month_infos.append((year, month, len(mc)))
