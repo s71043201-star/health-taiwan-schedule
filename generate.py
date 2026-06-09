@@ -436,36 +436,24 @@ def _course_span(c, show_district=False):
 
 
 # ---------------------------------------------------------------- 手機版（日卡片）
-def render_mobile(courses, show_district=False, hide_past=False):
+def render_mobile(courses, show_district=False):
+    # 輸出全部日期，每個 .day 帶 data-date；「已過去」分界改由前端依訪客當天日期計算
+    # （見 inject_course_filter 的 script），免重建、各裝置時區都正確。
     by_day = defaultdict(list)
     for c in courses:
         by_day[c["date"]].append(c)
-    today = dt.date.today()
-
-    def day_block(day):
+    days_html = []
+    for day in sorted(by_day):
         cs = sorted(by_day[day], key=sort_key)
         d = dt.date.fromisoformat(day)
         wd = WD_ZH[(d.weekday() + 1) % 7]
         cards = "".join(_card(c, show_district) for c in cs)
-        return (f'<div class="day"><div class="day-h">'
-                f'<span class="dn">{d.month}/{d.day}</span>'
-                f'<span class="wd">（{wd}）</span>'
-                f'<span class="cnt">{len(cs)} 堂</span></div>{cards}</div>')
-
-    upcoming, past = [], []
-    for day in sorted(by_day):
-        if hide_past and dt.date.fromisoformat(day) < today:
-            past.append(day_block(day))
-        else:
-            upcoming.append(day_block(day))
-    blocks = []
-    if past:                          # 當月已過去的日子收進最上面的隱藏式選單
-        blocks.append(f'<details class="pastdays"><summary>'
-                      f'<span>已過去的日期（{len(past)} 天）</span>'
-                      f'<span class="arr">›</span></summary>\n{chr(10).join(past)}</details>')
-    if upcoming:
-        blocks.append("\n".join(upcoming))
-    return "\n".join(blocks)
+        days_html.append(
+            f'<div class="day" data-date="{day}"><div class="day-h">'
+            f'<span class="dn">{d.month}/{d.day}</span>'
+            f'<span class="wd">（{wd}）</span>'
+            f'<span class="cnt">{len(cs)} 堂</span></div>{cards}</div>')
+    return "\n".join(days_html)
 
 
 def _card(c, show_district=False):
@@ -639,6 +627,17 @@ def inject_course_filter(page: str, courses, show_district=False):
         'var chips=document.querySelectorAll(".legend .it, .bar .chip");'
         '[].slice.call(chips).forEach(function(el){el.addEventListener("click",function(){'
         'curTag=tagOf(el);if(list.style.display==="block")renderList();});});'
+        # 依「訪客當天日期」把已過去的日子收進最上面的隱藏選單（前端算,免重建、各裝置時區皆正確）
+        'var days=[].slice.call(document.querySelectorAll(".day[data-date]"));'
+        'if(days.length){var t=new Date(),p=function(n){return(n<10?"0":"")+n;};'
+        'var todayISO=t.getFullYear()+"-"+p(t.getMonth()+1)+"-"+p(t.getDate());'
+        'if(days[0].getAttribute("data-date").slice(0,7)===todayISO.slice(0,7)){'  # 只處理當月頁
+        'var past=days.filter(function(d){return d.getAttribute("data-date")<todayISO;});'
+        'if(past.length){var det=document.createElement("details");det.className="pastdays";'
+        'det.innerHTML=\'<summary><span>已過去的日期（\'+past.length+\'\\u5929）</span>\''
+        '+\'<span class="arr">›</span></summary>\';'
+        'days[0].parentNode.insertBefore(det,days[0]);'
+        'past.forEach(function(d){det.appendChild(d);});}}}'
         '})();</script>')
     # ① 標籤放在處方類型篩選上方（大字版 legend / 手機版 bar）
     filt = ('<div class="legend">' if '<div class="legend">' in page
@@ -776,8 +775,6 @@ def main():
         big_dir.mkdir(parents=True, exist_ok=True)
         mob_dir.mkdir(parents=True, exist_ok=True)
         stats = build_stats(mc)
-        today = dt.date.today()
-        is_current = (year, month) == (today.year, today.month)   # 只有當月才收合已過去的日期
 
         for dist in DISTRICTS:
             dc = [c for c in mc if c["district"] == dist]
@@ -786,7 +783,7 @@ def main():
             (big_dir / OUT_NAME[(dist, "big")]).write_text(
                 inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
             tpl = restamp((TPL / TPL_NAME[(dist, "mob")]).read_text(encoding="utf-8"), year, month)
-            out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc, hide_past=is_current))
+            out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
             (mob_dir / OUT_NAME[(dist, "mob")]).write_text(
                 inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
 
@@ -803,7 +800,7 @@ def main():
         mob = (mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
                   .replace("<h1>北投區　", "<h1>全區綜合　"))
         out = splice(mob, '<div class="day">', '<div class="empty">',
-                     render_mobile(mc, show_district=True, hide_past=is_current))
+                     render_mobile(mc, show_district=True))
         (mob_dir / OUT_NAME[("全區", "mob")]).write_text(
             inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True))), encoding="utf-8")
 
