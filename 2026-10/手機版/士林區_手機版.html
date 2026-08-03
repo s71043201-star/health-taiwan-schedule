@@ -1,0 +1,117 @@
+<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+<title>士林區課程表</title><style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;background:#FBFAF6;color:#1f1d18;
+ font-family:"Noto Sans TC","Hiragino Kaku Gothic ProN","Yu Gothic","Microsoft JhengHei",sans-serif;
+ font-weight:400;line-height:1.6;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:480px;margin:0 auto;padding:0 0 60px;}
+.head{text-align:center;padding:30px 18px 18px;}
+.head .ey{font-size:12px;letter-spacing:.3em;color:#7a715f;text-transform:uppercase;font-weight:600;}
+.head h1{margin:8px 0 4px;font-size:24px;font-weight:700;letter-spacing:.03em;color:#23211c;}
+.head .sub{font-size:15px;color:#4f4838;font-weight:500;}
+.bar{position:sticky;top:0;z-index:5;background:rgba(251,250,246,.96);
+ backdrop-filter:blur(6px);padding:10px 12px;border-bottom:1px solid #e6dfcf;
+ display:flex;gap:8px;overflow-x:auto;}
+.chip{flex:0 0 auto;border:2px solid #ccc;background:#fff;border-radius:999px;
+ padding:8px 16px;font-size:15px;font-weight:700;color:#3a362d;cursor:pointer;}
+.chip.on{color:#fff;}
+.day{padding:0 14px;}
+.day-h{position:sticky;top:54px;background:#FBFAF6;padding:18px 4px 8px;
+ display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #ddd4c2;margin-bottom:10px;z-index:3;}
+.day-h .dn{font-size:26px;font-weight:800;color:#23211c;letter-spacing:.02em;}
+.day-h .wd{font-size:16px;font-weight:700;color:#6a6252;}
+.day-h .cnt{margin-left:auto;font-size:13px;color:#8a8170;font-weight:600;}
+.card{display:block;border-left:6px solid;border-radius:8px;padding:12px 14px;margin:0 0 10px;
+ box-shadow:0 1px 3px rgba(0,0,0,.07);}
+.card .top{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
+.card .tag{font-size:14px;font-weight:700;padding:3px 11px;border-radius:6px;color:#fff;}
+.card .tm{font-size:17px;font-weight:800;color:#2a2620;}
+.card .nm{font-size:18px;font-weight:600;color:#15140f;line-height:1.45;}
+.card .vn{display:block;font-size:14.5px;color:#5b5446;margin-top:5px;}
+.card .vn::before{content:"📍 ";}
+.empty{display:none;text-align:center;color:#8a8170;padding:40px 20px;font-size:16px;}
+.foot{text-align:center;margin-top:34px;font-size:12px;letter-spacing:.16em;color:#9a9080;}
+</style></head><body><div class="wrap"><div class="sysnote">📌 本頁僅供查詢課表；要<b>預約課程</b>請至 LINE 圖文選單的「預約課程」。</div><style>.sysnote{margin:0 auto 16px;max-width:1120px;background:#FBEFE4;border:1.5px solid #E0A86B;border-radius:10px;padding:10px 14px;color:#5c4326;font-size:15px;font-weight:600;line-height:1.5;}.sysnote b{color:#9a5a1f;}</style>
+<div class="head"><div class="ey">Healthy Taiwan Program</div><h1>士林區　十月課程表</h1><div class="sub">2026 . 10　四大處方</div></div>
+<div class="bar"><div class="chip" data-k="all" data-fg="#3a362d">全部</div><div class="chip" data-k="n" data-fg="#445230">營養</div><div class="chip" data-k="s" data-fg="#72491F">運動</div><div class="chip" data-k="o" data-fg="#385268">社會</div><div class="chip" data-k="e" data-fg="#6E4858">情緒</div></div>
+<div class="empty">此分類目前沒有課程</div>
+<div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
+</div><script>
+const chips=[...document.querySelectorAll('.chip')];
+function apply(k){
+ document.querySelectorAll('.card').forEach(c=>{
+   c.style.display=(k==='all'||c.dataset.k===k)?'block':'none';});
+ document.querySelectorAll('.day').forEach(day=>{
+   const vis=[...day.querySelectorAll('.card')].some(c=>c.style.display!=='none');
+   day.style.display=vis?'block':'none';
+   const cnt=day.querySelector('.cnt');
+   if(cnt){const n=[...day.querySelectorAll('.card')].filter(c=>c.style.display!=='none').length;
+     cnt.textContent=n+' 堂';}
+ });
+}
+chips.forEach(ch=>ch.onclick=()=>{
+ chips.forEach(x=>{x.classList.remove('on');x.style.background='#fff';x.style.borderColor='#ccc';x.style.color='#3a362d';});
+ ch.classList.add('on');
+ if(ch.dataset.k!=='all'){ch.style.background=ch.dataset.fg;ch.style.borderColor=ch.dataset.fg;ch.style.color='#fff';}
+ else{ch.style.background='#3a362d';ch.style.borderColor='#3a362d';ch.style.color='#fff';}
+ apply(ch.dataset.k);
+});
+chips[0].click();
+</script><style id="calCSS">
+.calfab{position:fixed;right:16px;bottom:18px;z-index:60;width:54px;height:54px;border-radius:50%;border:none;background:#3a362d;color:#fff;font-size:24px;box-shadow:0 3px 10px rgba(0,0,0,.25);cursor:pointer;}
+.calmask{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;padding:20px;}
+.calmask.show{display:flex;}
+.calbox{background:#FBFAF6;border-radius:14px;width:100%;max-width:360px;padding:16px 16px 18px;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+.calhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.calhd b{font-size:18px;color:#23211c;font-weight:700;}
+.calx{border:none;background:transparent;font-size:20px;color:#6a6252;cursor:pointer;line-height:1;}
+.calwk,.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+.calwk{margin-bottom:6px;}.calwk span{text-align:center;font-size:12px;color:#8a8170;font-weight:700;}
+.calcell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border-radius:8px;font-size:15px;font-weight:600;color:#cdc6b5;}
+.calcell.has{background:#fff;color:#23211c;border:1.5px solid #d9cfba;cursor:pointer;position:relative;}
+.calcell.has::after{content:"";position:absolute;bottom:5px;width:5px;height:5px;border-radius:50%;background:#72491F;}
+.calcell.has:active{background:#efe9dc;}
+.calhint{margin-top:12px;text-align:center;font-size:12.5px;color:#8a8170;}
+.day.flash>.day-h{animation:dayflash 1.8s ease;border-radius:6px;}
+@keyframes dayflash{0%,30%{background:#fbeec4;}100%{background:transparent;}}
+</style>
+<div class="calmask" id="calMask"><div class="calbox">
+<div class="calhd"><b>2026 年 10 月</b><button class="calx" id="calX">✕</button></div>
+<div class="calwk"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+<div class="calgrid" id="calGrid"></div>
+<div class="calhint">點選有課程的日期即可跳轉（依目前分類）</div>
+</div></div>
+<button class="calfab" id="calFab" title="選擇日期">📅</button>
+<script>
+(function(){var Y=2026,M=10;
+var mask=document.getElementById('calMask'),grid=document.getElementById('calGrid');
+document.getElementById('calFab').onclick=function(){build();mask.classList.add('show');};
+document.getElementById('calX').onclick=function(){mask.classList.remove('show');};
+mask.onclick=function(e){if(e.target===mask)mask.classList.remove('show');};
+function visMap(){var m={};document.querySelectorAll('.day').forEach(function(d){
+ if(d.style.display==='none')return;var dn=d.querySelector('.dn');if(!dn)return;
+ var mm=dn.textContent.match(/(\d+)\/(\d+)/);if(mm&&+mm[1]===M)m[+mm[2]]=d;});return m;}
+function build(){var first=new Date(Y,M-1,1).getDay(),n=new Date(Y,M,0).getDate(),vis=visMap();
+ grid.innerHTML='';
+ for(var i=0;i<first;i++){var b=document.createElement('div');b.className='calcell';grid.appendChild(b);}
+ for(let d=1;d<=n;d++){let c=document.createElement('div');c.className='calcell';c.textContent=d;
+  if(vis[d]){c.className='calcell has';let el=vis[d];c.onclick=function(){mask.classList.remove('show');jump(el);};}
+  grid.appendChild(c);}}
+function jump(el){var y=el.getBoundingClientRect().top+window.pageYOffset-58;
+ window.scrollTo({top:y,behavior:'smooth'});
+ el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
+})();
+</script>
+<style>
+.topfab{position:fixed;right:16px;bottom:84px;z-index:60;width:46px;height:46px;border-radius:50%;background:#fff;color:#3a362d;border:1.5px solid #d9cfba;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer;display:none;line-height:1;}
+.topfab.show{display:block;}
+</style>
+<button class="topfab" id="topFab" title="回到頂部">↑</button>
+<script>
+(function(){var t=document.getElementById('topFab');
+function upd(){t.classList.toggle('show',(window.pageYOffset||document.documentElement.scrollTop)>300);}
+window.addEventListener('scroll',upd);upd();
+t.onclick=function(){window.scrollTo({top:0,behavior:'smooth'});};})();
+</script>
+<a class="homefab" href="../index.html">← 主選單</a><style>.homefab{position:fixed;left:16px;bottom:18px;z-index:65;background:#3a362d;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 16px;border-radius:999px;box-shadow:0 3px 10px rgba(0,0,0,.25);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;}</style></body></html>
