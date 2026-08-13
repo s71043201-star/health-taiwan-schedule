@@ -14,6 +14,7 @@
 重跑方式：  python generate.py
 """
 import os
+import re
 import json
 import html
 import shutil
@@ -120,6 +121,40 @@ def _slot_to_course(s):
     }, None
 
 
+# 課務會在線上課名前面加流水數字（且每天可能不同，見 tpma-statistics 的線上課口徑），
+# 對外顯示要把開頭的數字／分隔符去掉，只留真正的課名。
+_ONLINE_PREFIX = re.compile(r"^[\s\d０-９][\s\d０-９.、，,:：\-_－]*")
+
+
+def clean_online_name(name):
+    s = str(name or "").strip()
+    return _ONLINE_PREFIX.sub("", s).strip() or s
+
+
+def _norm_online(items):
+    """把線上課清單（Supabase online_courses 或 API courses）整理成顯示用格式：
+       只留已上架（status 空值視為上架）、處方類型可辨識的課，依處方類型排序。"""
+    out = []
+    for c in items:
+        status = str(c.get("status") or "published").strip().lower()
+        if status not in ("published", "publish", "online", "active", ""):
+            continue
+        ptype = API_TYPE_MAP.get(str(c.get("type") or c.get("prescription_type") or "").strip().lower())
+        if ptype is None:
+            continue
+        out.append({
+            "name": clean_online_name(c.get("name")),
+            "raw_name": str(c.get("name") or "").strip(),
+            "type": ptype,
+            "instructor": str(c.get("instructor") or "").strip(),
+            "minutes": _int(c.get("minutes")),
+            "course_id": str(c.get("course_id") or c.get("id") or "").strip(),
+        })
+    order = list(TYPE_MAP)
+    out.sort(key=lambda c: (order.index(c["type"]) if c["type"] in order else 99, c["raw_name"]))
+    return out
+
+
 def _slots_to_courses(slots):
     """共用：把 slots 清單轉成 courses，並彙整略過統計。"""
     courses, skipped_cancel = [], 0
@@ -138,9 +173,10 @@ def _slots_to_courses(slots):
 
 
 def load_courses_supabase():
-    """讀 Supabase prescription_data(id='main') 的 course_slots（n8n 已同步好的那份）。"""
+    """讀 Supabase prescription_data(id='main') 的 course_slots（n8n 已同步好的那份）。
+       線上課程（視訊課）沒有場次，另外放在 course_slot_stats.online_courses，一起讀回來。"""
     url = (SUPABASE_URL + "/rest/v1/prescription_data"
-           f"?id=eq.{SUPABASE_ROW_ID}&select=course_slots")
+           f"?id=eq.{SUPABASE_ROW_ID}&select=course_slots,course_slot_stats")
     req = urllib.request.Request(url, headers={
         "apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY})
     with urllib.request.urlopen(req) as r:
@@ -148,7 +184,9 @@ def load_courses_supabase():
     if not rows:
         raise SystemExit(f"❌ Supabase 找不到 id='{SUPABASE_ROW_ID}' 的列。")
     slots = rows[0].get("course_slots") or []
-    return _slots_to_courses(slots)
+    stats = rows[0].get("course_slot_stats") or {}
+    online = _norm_online(stats.get("online_courses") or [])
+    return _slots_to_courses(slots) + (online,)
 
 
 def _api_login(account, password):
@@ -184,8 +222,36 @@ def _hhmm(t):
     return s[:5] if len(s) >= 5 else s
 
 
+def _api_online_courses(token):
+    """從 /admin/courses 撈出線上課（delivery_mode=online_external）。
+       slots/summary 不含 delivery_mode，線上課也沒有場次，只能走課程清單。"""
+    items_all, page = [], 1
+    while page <= 20:                      # 保險上限，避免 pagination 欄位變動造成無限迴圈
+        data = _api_get("/api/v1/admin/courses", {"page": page, "page_size": 100}, token)
+        items = data.get("items") or []
+        items_all.extend(items)
+        if len(items) < 100:
+            break
+        page += 1
+    online = []
+    for c in items_all:
+        if str(c.get("delivery_mode") or "").strip() != "online_external":
+            continue
+        det = c.get("online_detail") or {}
+        online.append({
+            "name": c.get("name"),
+            "type": c.get("prescription_type") or c.get("type"),
+            "status": c.get("status"),
+            "instructor": c.get("instructor"),
+            "minutes": det.get("estimated_minutes"),
+            "course_id": c.get("id"),
+        })
+    return _norm_online(online)
+
+
 def load_courses_api(account, password, start_date, end_date):
-    """從健康處方系統 API 逐月抓 slots/summary，組成 courses（與 Supabase 來源共用轉換）。"""
+    """從健康處方系統 API 逐月抓 slots/summary，組成 courses（與 Supabase 來源共用轉換）。
+       另抓一次課程清單取線上課（沒有場次，slots 抓不到）。"""
     import urllib.error
     token = _api_login(account, password)
     slots = []
@@ -201,7 +267,12 @@ def load_courses_api(account, password, start_date, end_date):
             else:
                 raise
         slots.extend(data.get("slots", []))
-    return _slots_to_courses(slots)
+    try:
+        online = _api_online_courses(token)
+    except Exception as e:                  # 線上課抓失敗不該擋掉整份課表
+        print(f"⚠ 線上課程清單抓取失敗（略過線上課頁）：{e}")
+        online = []
+    return _slots_to_courses(slots) + (online,)
 
 
 def resolve_source():
@@ -487,12 +558,21 @@ SYSNOTE = (
     'LINE 圖文選單的「預約課程」。</div>'
     '<style>.sysnote{margin:0 auto 16px;max-width:1120px;background:#FBEFE4;'
     'border:1.5px solid #E0A86B;border-radius:10px;padding:10px 14px;color:#5c4326;'
-    'font-size:15px;font-weight:600;line-height:1.5;}.sysnote b{color:#9a5a1f;}</style>'
+    'font-size:15px;font-weight:600;line-height:1.5;}.sysnote b{color:#9a5a1f;}'
+    '.sysnote.on{background:#EAF1F6;border-color:#8FB3CB;color:#2c4457;}'
+    '.sysnote.on a{color:#1c5b86;}</style>'
 )
 
 
-def inject_sysnote(page: str):
-    return page.replace('<div class="wrap">', '<div class="wrap">' + SYSNOTE, 1)
+def online_note(n, href):
+    """課表頁上方的線上課程指路（線上課沒有日期，塞不進日／週表格）。"""
+    return ('<div class="sysnote on">▶️ 另有 <b>' + str(n) + ' 堂線上影音課程</b>'
+            '（免預約、隨時可看）　<a href="' + href + '">看線上課程清單 ›</a></div>')
+
+
+def inject_sysnote(page: str, online_n=0, online_href=""):
+    note = SYSNOTE + (online_note(online_n, online_href) if online_n else "")
+    return page.replace('<div class="wrap">', '<div class="wrap">' + note, 1)
 
 
 # ---------------------------------------------------------------- 課程查詢（下拉選單 + 時段 modal）
@@ -716,6 +796,17 @@ body{margin:0;padding:56px 20px 80px;background:#FBFAF6;color:#262420;
 .notice img{display:block;width:100%;max-width:420px;margin:10px auto 0;
  border-radius:10px;border:1px solid #e6dfcf;}
 .foot{text-align:center;margin-top:40px;font-size:13px;letter-spacing:.16em;color:#8a8170;}
+.month.online{border:2px solid #385268;background:#f3f7fa;gap:12px;}
+.month.online b{color:#26405a;font-size:20px;line-height:1.35;}
+.month.online b small{display:block;font-size:13px;color:#5b7386;font-weight:600;margin-top:2px;}
+.month.online span{white-space:nowrap;}
+.card-on h2{display:flex;align-items:center;gap:10px;}
+.card-on h2 .t{font-size:14px;font-weight:700;padding:4px 12px;border-radius:999px;color:#fff;}
+.olist{list-style:none;margin:0;padding:0;}
+.olist li{padding:12px 2px;border-top:1px solid #f0ebe0;}
+.olist li:first-child{border-top:0;padding-top:2px;}
+.olist .on{display:block;font-size:17px;font-weight:700;color:#23211c;line-height:1.45;}
+.olist .om{display:block;margin-top:3px;font-size:13px;color:#8a8170;font-weight:600;}
 """
 
 
@@ -732,14 +823,16 @@ def notice_html(img_prefix):
 def main():
     kind, src = resolve_source()
     unknown_type = None
+    online = []
     if kind == "supabase":
         print(f"來源：Supabase course_slots（{SUPABASE_URL}，id='{SUPABASE_ROW_ID}'，由 n8n 同步）")
-        courses, skipped, unknown, unknown_type = load_courses_supabase()
+        courses, skipped, unknown, unknown_type, online = load_courses_supabase()
         source_name = "supabase:n8n-sync"
     elif kind == "api":
         account, password, start, end = src
         print(f"來源：健康處方系統 API（帳號 {account}，{start} ~ {end}）")
-        courses, skipped, unknown, unknown_type = load_courses_api(account, password, start, end)
+        courses, skipped, unknown, unknown_type, online = load_courses_api(
+            account, password, start, end)
         source_name = "healthcheck-api"
     else:
         print(f"來源 Excel：{src.name}")
@@ -754,6 +847,12 @@ def main():
         print("⚠ 無法歸類的地點：")
         for k, v in unknown.most_common():
             print(f"   {k}  ×{v}")
+    print(f"線上影音課程 {len(online)} 堂"
+          + ("" if online else "（無資料，略過線上課程頁）"))
+
+    # 線上課的相對路徑：月份頁在 ROOT/YYYY-MM/，課表頁在 ROOT/YYYY-MM/大字版|手機版/
+    on_n = len(online)
+    on_href2 = "../../" + ONLINE_PAGE
 
     # 依年月分組
     by_month = defaultdict(list)
@@ -781,11 +880,13 @@ def main():
             tpl = restamp((TPL / TPL_NAME[(dist, "big")]).read_text(encoding="utf-8"), year, month)
             out = splice(tpl, '<div class="week">', '<div class="foot">', render_big(dc))
             (big_dir / OUT_NAME[(dist, "big")]).write_text(
-                inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
+                inject_back(inject_sysnote(inject_course_filter(out, dc), on_n, on_href2)),
+                encoding="utf-8")
             tpl = restamp((TPL / TPL_NAME[(dist, "mob")]).read_text(encoding="utf-8"), year, month)
             out = splice(tpl, '<div class="day">', '<div class="empty">', render_mobile(dc))
             (mob_dir / OUT_NAME[(dist, "mob")]).write_text(
-                inject_back(inject_sysnote(inject_course_filter(out, dc))), encoding="utf-8")
+                inject_back(inject_sysnote(inject_course_filter(out, dc), on_n, on_href2)),
+                encoding="utf-8")
 
         # 全區綜合（三區合併，課程標出所屬區）
         big = restamp((TPL / TPL_NAME[("北投", "big")]).read_text(encoding="utf-8"), year, month)
@@ -794,7 +895,8 @@ def main():
         out = splice(big, '<div class="week">', '<div class="foot">',
                      render_big(mc, show_district=True))
         (big_dir / OUT_NAME[("全區", "big")]).write_text(
-            inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True))), encoding="utf-8")
+            inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True),
+                                       on_n, on_href2)), encoding="utf-8")
 
         mob = restamp((TPL / TPL_NAME[("北投", "mob")]).read_text(encoding="utf-8"), year, month)
         mob = (mob.replace("<title>北投區課程表</title>", "<title>全區綜合課程表</title>")
@@ -802,9 +904,10 @@ def main():
         out = splice(mob, '<div class="day">', '<div class="empty">',
                      render_mobile(mc, show_district=True))
         (mob_dir / OUT_NAME[("全區", "mob")]).write_text(
-            inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True))), encoding="utf-8")
+            inject_back(inject_sysnote(inject_course_filter(out, mc, show_district=True),
+                                       on_n, on_href2)), encoding="utf-8")
 
-        write_month_index(mdir, year, month, stats)
+        write_month_index(mdir, year, month, stats, on_n)
         month_infos.append((year, month, len(mc)))
         by_type = " ".join(f"{TYPE_MAP[t][1]}{sum(1 for c in mc if c['type'] == t)}" for t in TYPE_MAP)
         print(f"  {year}-{month:02d}：{len(mc)} 堂  {by_type}")
@@ -815,12 +918,19 @@ def main():
         "source": source_name,
         "total": len(courses),
         "courses": sorted(courses, key=lambda c: (c["district"],) + sort_key(c)),
+        "online_courses": online,
     }
     (ROOT / "courses.json").write_text(
         json.dumps(db, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"已輸出 courses.json（{len(courses)} 筆）")
+    print(f"已輸出 courses.json（{len(courses)} 筆 + 線上 {len(online)} 堂）")
 
-    write_root_index(month_infos)
+    if online:
+        write_online_page(online)
+        print(f"已輸出 {ONLINE_PAGE}（線上影音課程 {len(online)} 堂）")
+    elif (ROOT / ONLINE_PAGE).exists():      # 線上課全下架就不留殘頁（連結也不會出現）
+        (ROOT / ONLINE_PAGE).unlink()
+
+    write_root_index(month_infos, on_n)
     print(f"已輸出 index.html（{len(month_infos)} 個月份）")
 
 
@@ -854,7 +964,8 @@ def _region_cards(stats):
     return "\n".join(cards)
 
 
-def write_month_index(mdir, year, month, stats):
+def write_month_index(mdir, year, month, stats, online_n=0):
+    online_btn = _online_btn(online_n, "../" + ONLINE_PAGE) if online_n else ""
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>健康台灣深耕計畫 · {year}年{month}月課程表</title>
@@ -864,10 +975,67 @@ def write_month_index(mdir, year, month, stats):
 <h1>{year} 年 {month} 月課程表</h1>
 <div class="sub">士林 · 北投 · 中山　四大處方　共 {stats['total']} 堂</div></div>
 {notice_html("../")}
+{online_btn}
 {_region_cards(stats)}
 <div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
 </div></body></html>"""
     (mdir / "index.html").write_text(page, encoding="utf-8")
+
+
+ONLINE_PAGE = "online.html"
+
+
+def _online_btn(n, href=ONLINE_PAGE):
+    return (f'<a class="month online" href="{href}">'
+            f'<b>▶️ 線上影音課程<small>免預約、隨時可看</small></b>'
+            f'<span>{n} 堂 ›</span></a>')
+
+
+def write_online_page(online):
+    """線上課程（視訊課）清單頁：沒有日期與場次，依處方類型分組列出。"""
+    by_type = defaultdict(list)
+    for c in online:
+        by_type[c["type"]].append(c)
+    cards = []
+    for t in TYPE_MAP:
+        lst = by_type.get(t) or []
+        if not lst:
+            continue
+        _k, tag, b, _bg = TYPE_MAP[t]
+        items = []
+        for c in lst:
+            meta = []
+            if c["instructor"]:
+                meta.append("講師：" + esc(c["instructor"]))
+            if c["minutes"]:
+                meta.append(f'約 {c["minutes"]} 分鐘')
+            items.append(f'<li><span class="on">{esc(c["name"])}</span>'
+                         + (f'<span class="om">{" ・ ".join(meta)}</span>' if meta else "")
+                         + "</li>")
+        cards.append(f"""    <section class="card card-on">
+      <h2><span class="t" style="background:{b}">{tag}</span>{t}
+        <small>{len(lst)} 堂</small></h2>
+      <ul class="olist">{"".join(items)}</ul>
+    </section>""")
+    page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>健康台灣深耕計畫 · 線上影音課程</title>
+<meta name="description" content="健康處方線上影音課程一覽，免預約、隨時可看。">
+<style>{INDEX_CSS}</style></head><body><div class="wrap">
+<a class="back" href="index.html">← 課表首頁</a>
+<div class="head"><div class="ey">Healthy Taiwan Program</div>
+<h1>線上影音課程</h1>
+<div class="sub">四大處方　共 {len(online)} 堂　免預約、隨時可看</div></div>
+<div class="notice">
+<p class="nt">▶️ 線上課程怎麼上？</p>
+<p>線上課程<b>不用預約</b>、也沒有固定時段與地點。請回到 LINE 的圖文選單點選
+「<b>線上課程</b>」開始觀看，這樣才會留下您的上課紀錄。</p>
+<p>本頁僅供查詢目前有哪些線上課程。</p>
+</div>
+{chr(10).join(cards)}
+<div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
+</div></body></html>"""
+    (ROOT / ONLINE_PAGE).write_text(page, encoding="utf-8")
 
 
 def _month_btn(year, month, total):
@@ -876,15 +1044,18 @@ def _month_btn(year, month, total):
             f'<b>{year} 年 {month} 月</b><span>{total} 堂 ›</span></a>')
 
 
-def write_root_index(month_infos):
-    """當月與未來月份正常列出；過去月份收進可點開的『過往月份』區塊。"""
+def write_root_index(month_infos, online_n=0):
+    """當月與未來月份正常列出；過去月份收進可點開的『過往月份』區塊。
+       線上影音課程沒有月份，單獨一顆按鈕放在月份清單下面。"""
     today = dt.date.today()
     cur = (today.year, today.month)
     upcoming = [mi for mi in month_infos if (mi[0], mi[1]) >= cur]
     past = [mi for mi in month_infos if (mi[0], mi[1]) < cur]
 
     parts = []
-    if past:                                                # 過往月份收合，放最上面
+    if online_n:                                            # 線上課程（不分月份）放最上面
+        parts.append(_online_btn(online_n))
+    if past:                                                # 過往月份收合，放月份清單最上面
         past_btns = "\n".join(_month_btn(*mi) for mi in past)  # 舊到新（2→5 月）
         parts.append(
             '<details class="past"><summary>'
@@ -897,13 +1068,14 @@ def write_root_index(month_infos):
                      '可展開上方查詢過往月份。</p>')
     body = ("\n".join(parts) if parts
             else '<p style="text-align:center;color:#8a8170">目前沒有課程資料</p>')
+    sub = "請選擇月份" + ("，或看免預約的線上影音課程" if online_n else "")
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>健康台灣深耕計畫 · 課程表</title>
 <style>{INDEX_CSS}</style></head><body><div class="wrap">
 <div class="head"><div class="ey">Healthy Taiwan Program</div>
 <h1>課程表</h1>
-<div class="sub">請選擇月份</div></div>
+<div class="sub">{sub}</div></div>
 {notice_html("")}
 {body}
 <div class="foot">台北市醫師公會 ‧ 健康台灣深耕計畫</div>
