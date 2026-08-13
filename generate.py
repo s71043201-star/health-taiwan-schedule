@@ -567,7 +567,8 @@ SYSNOTE = (
 def online_note(n, href):
     """課表頁上方的線上課程指路（線上課沒有日期，塞不進日／週表格）。"""
     return ('<div class="sysnote on">▶️ 另有 <b>' + str(n) + ' 堂線上影音課程</b>'
-            '（免預約、隨時可看）　<a href="' + href + '">看線上課程清單 ›</a></div>')
+            '（在「預約課程」裡選線上課程，隨時可看）　'
+            '<a href="' + href + '">看線上課程清單 ›</a></div>')
 
 
 def inject_sysnote(page: str, online_n=0, online_href=""):
@@ -987,7 +988,7 @@ ONLINE_PAGE = "online.html"
 
 def _online_btn(n, href=ONLINE_PAGE):
     return (f'<a class="month online" href="{href}">'
-            f'<b>▶️ 線上影音課程<small>免預約、隨時可看</small></b>'
+            f'<b>▶️ 線上影音課程<small>不限時段地點，隨時可看</small></b>'
             f'<span>{n} 堂 ›</span></a>')
 
 
@@ -1020,16 +1021,17 @@ def write_online_page(online):
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>健康台灣深耕計畫 · 線上影音課程</title>
-<meta name="description" content="健康處方線上影音課程一覽，免預約、隨時可看。">
+<meta name="description" content="健康處方線上影音課程一覽；於預約系統選線上課程，不限時段地點。">
 <style>{INDEX_CSS}</style></head><body><div class="wrap">
 <a class="back" href="index.html">← 課表首頁</a>
 <div class="head"><div class="ey">Healthy Taiwan Program</div>
 <h1>線上影音課程</h1>
-<div class="sub">四大處方　共 {len(online)} 堂　免預約、隨時可看</div></div>
+<div class="sub">四大處方　共 {len(online)} 堂　不限時段地點</div></div>
 <div class="notice">
 <p class="nt">▶️ 線上課程怎麼上？</p>
-<p>線上課程<b>不用預約</b>、也沒有固定時段與地點。請回到 LINE 的圖文選單點選
-「<b>線上課程</b>」開始觀看，這樣才會留下您的上課紀錄。</p>
+<p>線上課程<b>一樣要在預約系統選課</b>：回到 LINE 的圖文選單點「<b>預約課程</b>」，
+再選擇<b>線上課程</b>，即可觀看影片、留下上課紀錄。</p>
+<p>與實體課不同的是，線上課程<b>沒有固定時段與上課地點</b>，選課後隨時可看。</p>
 <p>本頁僅供查詢目前有哪些線上課程。</p>
 </div>
 {chr(10).join(cards)}
@@ -1068,7 +1070,7 @@ def write_root_index(month_infos, online_n=0):
                      '可展開上方查詢過往月份。</p>')
     body = ("\n".join(parts) if parts
             else '<p style="text-align:center;color:#8a8170">目前沒有課程資料</p>')
-    sub = "請選擇月份" + ("，或看免預約的線上影音課程" if online_n else "")
+    sub = "請選擇月份" + ("，或看線上影音課程" if online_n else "")
     page = f"""<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>健康台灣深耕計畫 · 課程表</title>
